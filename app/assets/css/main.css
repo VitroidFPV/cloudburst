@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+:root {
+  --ui-primary: #000;
+}
+
+.dark {
+  --cloudburst-bg-dark: color-mix(in oklab, var(--ui-color-neutral-950) 52%, var(--ui-color-neutral-900));
+  --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--ui-color-neutral-950) 30%, var(--ui-color-neutral-900));
+  --cloudburst-bg-dark-accented: color-mix(in oklab, var(--ui-color-neutral-900) 80%, var(--ui-color-neutral-800));
+  --ui-primary: #fff;
+  --ui-text-inverted: var(--cloudburst-bg-dark);
+  --ui-bg: var(--cloudburst-bg-dark);
+  --ui-bg-muted: var(--cloudburst-bg-dark-elevated);
+  --ui-bg-elevated: var(--cloudburst-bg-dark-elevated);
+  --ui-bg-accented: var(--cloudburst-bg-dark-accented);
+}
+
+html {
+  background: var(--ui-bg);
+}
+
+body {
+  margin: 0;
+  min-width: 800px;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--ui-bg);
+  color: var(--ui-text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+* {
+  scrollbar-color: rgb(82 82 91 / 0.7) transparent;
+  scrollbar-width: thin;
+}
+
+::selection {
+  background: rgb(34 211 238 / 0.28);
+}
