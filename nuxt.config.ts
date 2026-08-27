@@ -23,6 +23,9 @@ export default defineNuxtConfig({
       meta: [
         { name: 'description', content: 'A focused desktop interface for qBittorrent.' },
       ],
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', sizes: 'any', href: '/favicon.svg' },
+      ],
     },
   },
 })

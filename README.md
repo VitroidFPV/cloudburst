@@ -40,6 +40,7 @@ pnpm generate
 - `app/composables/useTorrentLibrary.ts` is the module seam for torrent state and actions.
 - `app/data/placeholder-torrents.ts` supplies temporary in-memory data.
 - `src-tauri/` contains the minimal desktop application shell and its permissions.
+- `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
 The placeholder module is intentionally local and non-persistent. Its implementation can later be replaced with qBittorrent integration without changing the page layout. The Tauri shell currently exposes no Cloudburst commands, tray behavior, or qBittorrent functionality.
