@@ -1,0 +1,21 @@
+[package]
+name = "cloudburst"
+version = "0.1.0"
+description = "A focused desktop interface for qBittorrent"
+authors = ["VitroidFPV"]
+license = "GPL-3.0-only"
+repository = "https://github.com/VitroidFPV/cloudburst"
+edition = "2021"
+rust-version = "1.88.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "cloudburst_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
