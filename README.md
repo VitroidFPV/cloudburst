@@ -16,13 +16,13 @@ The application runs at `http://localhost:3000`.
 Install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. The repository pins Rust 1.88 and rustup will install that toolchain when needed. Then run:
 
 ```sh
-pnpm tauri dev
+pnpm dev:desktop
 ```
 
-Tauri starts the Nuxt development server automatically. To compile the desktop application and platform bundles:
+Tauri starts the Nuxt development server automatically and keeps Nuxt hot-module replacement active inside the desktop window. Changes to the Rust shell also trigger a native rebuild. To compile the desktop application and platform bundles:
 
 ```sh
-pnpm tauri build
+pnpm build:desktop
 ```
 
 The desktop build runs `pnpm generate` before packaging the generated client application.

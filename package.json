@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev --host 127.0.0.1 --port 3000",
+    "dev:desktop": "tauri dev",
     "build": "nuxt build",
+    "build:desktop": "tauri build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "typecheck": "nuxt typecheck",
