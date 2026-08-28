@@ -42,6 +42,8 @@ pub fn run() {
             qbittorrent::remove_torrents,
             qbittorrent::add_torrents,
             qbittorrent::fetch_default_save_path,
+            qbittorrent::parse_torrent_metadata,
+            qbittorrent::fetch_torrent_metadata,
             qbittorrent::disconnect_qbittorrent,
             magnet_handler::magnet_handler_status,
             magnet_handler::open_default_apps_settings

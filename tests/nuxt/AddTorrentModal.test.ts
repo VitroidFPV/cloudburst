@@ -2,17 +2,29 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import AddTorrentModal from '~/components/AddTorrentModal.vue'
-import type { AddTorrentsInput } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
 
 const mountedWrappers: VueWrapper[] = []
 
-const mountModal = async () => {
+interface ModalProps {
+  categories?: string[]
+  defaultSavePath?: string
+  canBrowse?: boolean
+  pending?: boolean
+  parseMetadata?: (files: AddTorrentFile[]) => Promise<TorrentMetadata[] | null>
+  fetchMetadata?: (source: string) => Promise<MetadataFetch | null>
+}
+
+const mountModal = async (props: ModalProps = {}) => {
   const wrapper = await mountSuspended(AddTorrentModal, {
     props: {
       categories: ['Linux', 'Media'],
       defaultSavePath: 'C:/Downloads',
       canBrowse: false,
       pending: false,
+      parseMetadata: async () => null,
+      fetchMetadata: async () => ({ status: 'pending' }),
+      ...props,
     },
   })
   mountedWrappers.push(wrapper)
@@ -27,9 +39,9 @@ afterEach(() => {
 const findInModal = <T extends HTMLElement>(selector: string) =>
   Array.from(document.body.querySelectorAll<T>(selector))
 
-const setInputValue = (input: HTMLInputElement, value: string) => {
-  input.value = value
-  input.dispatchEvent(new Event('input', { bubbles: true }))
+const setTextareaValue = (textarea: HTMLTextAreaElement, value: string) => {
+  textarea.value = value
+  textarea.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
 const clickButtonWithLabel = async (label: string) => {
@@ -40,47 +52,114 @@ const clickButtonWithLabel = async (label: string) => {
   await flushPromises()
 }
 
+const emittedInput = (wrapper: VueWrapper) =>
+  (wrapper.emitted('add') as Array<[AddTorrentsInput]>).at(-1)![0]
+
 describe('AddTorrentModal', () => {
-  it('starts empty, accepts links, and emits a normalized add payload', async () => {
+  it('walks a two-step flow for a single magnet and adds it unmodified', async () => {
     const wrapper = await mountModal()
     ;(wrapper.vm as unknown as { openWith: (options?: object) => void }).openWith()
     await flushPromises()
 
     expect(document.body.textContent).toContain('Add torrents')
-    expect(wrapper.emitted('add')).toBeUndefined()
 
     const textarea = findInModal<HTMLTextAreaElement>('textarea')[0]!
-    textarea.value = ' magnet:?xt=urn:btih:abc \nhttps://example.test/debian.torrent'
-    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    setTextareaValue(textarea, 'magnet:?xt=urn:btih:abc')
     await flushPromises()
 
-    const category = findInModal<HTMLInputElement>('input[aria-label="Category"]')[0]!
-    setInputValue(category, '  Linux  ')
-    await flushPromises()
+    await clickButtonWithLabel('Continue')
+    expect(document.body.textContent).toContain('Review torrent')
 
-    await clickButtonWithLabel('Add 2 torrents')
+    await clickButtonWithLabel('Add torrent')
 
-    const emitted = wrapper.emitted('add') as Array<[AddTorrentsInput]>
-    expect(emitted).toHaveLength(1)
-    expect(emitted[0]![0]).toEqual({
-      urls: ['magnet:?xt=urn:btih:abc', 'https://example.test/debian.torrent'],
+    expect(emittedInput(wrapper)).toEqual({
+      urls: ['magnet:?xt=urn:btih:abc'],
       files: [],
-      category: 'Linux',
+      category: undefined,
       savePath: undefined,
       contentLayout: 'original',
+      filePriorities: undefined,
     })
   })
 
-  it('prefills a magnet from an external source and emits it on submit', async () => {
+  it('adds a batch of sources in one request without a file tree', async () => {
     const wrapper = await mountModal()
+    ;(wrapper.vm as unknown as { openWith: (options?: object) => void }).openWith()
+    await flushPromises()
+
+    const textarea = findInModal<HTMLTextAreaElement>('textarea')[0]!
+    setTextareaValue(textarea, ' magnet:?xt=urn:btih:abc \nhttps://example.test/debian.torrent')
+    await flushPromises()
+
+    await clickButtonWithLabel('Continue')
+    expect(document.body.textContent).not.toContain('Fetching metadata')
+
+    await clickButtonWithLabel('Add 2 torrents')
+
+    expect(emittedInput(wrapper)).toEqual({
+      urls: ['magnet:?xt=urn:btih:abc', 'https://example.test/debian.torrent'],
+      files: [],
+      category: undefined,
+      savePath: undefined,
+      contentLayout: 'original',
+      filePriorities: undefined,
+    })
+  })
+
+  it('shows the file tree for a magnet with metadata and applies partial selection', async () => {
+    const fetchMetadata = async (): Promise<MetadataFetch> => ({
+      status: 'ready',
+      metadata: {
+        hash: 'v2hash',
+        name: 'Show.S01',
+        files: [
+          { path: 'Show.S01/ep1.mkv', length: 1000 },
+          { path: 'Show.S01/ep2.mkv', length: 2000 },
+        ],
+      },
+    })
+    const wrapper = await mountModal({ fetchMetadata })
     ;(wrapper.vm as unknown as { openWith: (options?: { urls?: string[] }) => void })
       .openWith({ urls: ['magnet:?xt=urn:btih:abc'] })
     await flushPromises()
 
-    const textarea = findInModal<HTMLTextAreaElement>('textarea')[0]!
-    expect(textarea.value).toBe('magnet:?xt=urn:btih:abc')
+    await clickButtonWithLabel('Continue')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Show.S01')
+    expect(document.body.textContent).toContain('ep2.mkv')
+
+    const ep2 = findInModal<HTMLButtonElement>('button[aria-label="Include ep2.mkv"]')[0]!
+    ep2.click()
+    await flushPromises()
 
     await clickButtonWithLabel('Add torrent')
-    expect((wrapper.emitted('add') as Array<[AddTorrentsInput]>)[0]![0].urls).toEqual(['magnet:?xt=urn:btih:abc'])
+
+    expect(emittedInput(wrapper).urls).toEqual(['magnet:?xt=urn:btih:abc'])
+    expect(emittedInput(wrapper).filePriorities).toEqual([1, 0])
+  })
+
+  it('adds a parsed single file by hash so priorities can apply', async () => {
+    const parseMetadata = async (): Promise<TorrentMetadata[] | null> => [{
+      hash: 'v2hash',
+      name: 'Show.S01',
+      files: [{ path: 'Show.S01/ep1.mkv', length: 1000 }],
+    }]
+    const wrapper = await mountModal({ parseMetadata })
+    const file = new File([new Uint8Array([100])], 'show.torrent', { type: 'application/x-bittorrent' })
+    ;(wrapper.vm as unknown as { openWith: (options?: { files?: File[] }) => void })
+      .openWith({ files: [file] })
+    await flushPromises()
+
+    await clickButtonWithLabel('Continue')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('ep1.mkv')
+
+    await clickButtonWithLabel('Add torrent')
+
+    expect(emittedInput(wrapper).urls).toEqual(['v2hash'])
+    expect(emittedInput(wrapper).files).toEqual([])
+    expect(emittedInput(wrapper).filePriorities).toBeUndefined()
   })
 })

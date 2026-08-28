@@ -38,6 +38,8 @@ const {
   removeTorrents,
   addTorrents,
   loadDefaultSavePath,
+  parseTorrentMetadata,
+  fetchTorrentMetadata,
   disconnect,
   chooseFilter,
   chooseCategory,
@@ -503,6 +505,8 @@ onBeforeUnmount(() => {
       :default-save-path="defaultSavePath"
       :can-browse="canBrowseFolders"
       :pending="activityUpdating"
+      :parse-metadata="parseTorrentMetadata"
+      :fetch-metadata="fetchTorrentMetadata"
       @add="addTorrentsFromModal"
     />
 

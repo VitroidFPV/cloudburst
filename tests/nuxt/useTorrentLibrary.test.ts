@@ -52,6 +52,8 @@ const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): Qbittorrent
   removeTorrents: unexpected,
   addTorrents: unexpected,
   defaultSavePath: unexpected,
+  parseTorrentMetadata: async () => [],
+  fetchTorrentMetadata: async () => ({ status: 'pending' }),
   disconnect: async () => {},
   ...overrides,
 })

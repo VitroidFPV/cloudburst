@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionSnapshot, RestoreOutcome } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionSnapshot, MetadataFetch, RestoreOutcome, TorrentMetadata } from '~/types/torrent'
 
 export interface QbittorrentAdapter {
   connect: (input: ConnectionInput) => Promise<ConnectionSnapshot>
@@ -9,6 +9,8 @@ export interface QbittorrentAdapter {
   removeTorrents: (torrentIds: string[], deleteFiles: boolean) => Promise<ConnectionSnapshot>
   addTorrents: (input: AddTorrentsInput) => Promise<AddTorrentsOutcome>
   defaultSavePath: () => Promise<string>
+  parseTorrentMetadata: (files: AddTorrentFile[]) => Promise<TorrentMetadata[]>
+  fetchTorrentMetadata: (source: string) => Promise<MetadataFetch>
   disconnect: () => Promise<void>
 }
 
@@ -20,5 +22,7 @@ export const tauriQbittorrentAdapter: QbittorrentAdapter = {
   removeTorrents: (torrentIds, deleteFiles) => invoke<ConnectionSnapshot>('remove_torrents', { torrentIds, deleteFiles }),
   addTorrents: input => invoke<AddTorrentsOutcome>('add_torrents', { input }),
   defaultSavePath: () => invoke<string>('fetch_default_save_path'),
+  parseTorrentMetadata: files => invoke<TorrentMetadata[]>('parse_torrent_metadata', { files }),
+  fetchTorrentMetadata: source => invoke<MetadataFetch>('fetch_torrent_metadata', { source }),
   disconnect: () => invoke('disconnect_qbittorrent'),
 }

@@ -64,6 +64,7 @@ export interface AddTorrentsInput {
   category?: string
   savePath?: string
   contentLayout: AddContentLayout
+  filePriorities?: number[]
 }
 
 export interface AddTorrentsOutcome {
@@ -72,6 +73,19 @@ export interface AddTorrentsOutcome {
   pendingCount: number
   addedTorrentIds: string[]
 }
+
+export interface TorrentMetadataFile {
+  path: string
+  length: number
+}
+
+export interface TorrentMetadata {
+  hash: string
+  name: string
+  files: TorrentMetadataFile[]
+}
+
+export type MetadataFetch = { status: 'ready', metadata: TorrentMetadata } | { status: 'pending' }
 
 export type MagnetHandlerStatus = 'cloudburstDefault' | 'otherProgram' | 'notRegistered'
 

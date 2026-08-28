@@ -73,6 +73,8 @@ pub struct AddTorrentsInput {
     #[serde(default)]
     save_path: Option<String>,
     content_layout: AddContentLayout,
+    #[serde(default)]
+    file_priorities: Option<Vec<u32>>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +109,84 @@ pub struct AddTorrentsOutcome {
     failure_count: u32,
     pending_count: u32,
     added_torrent_ids: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentMetadataFile {
+    path: String,
+    length: u64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentMetadata {
+    hash: String,
+    name: String,
+    files: Vec<TorrentMetadataFile>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", tag = "status")]
+pub enum MetadataFetch {
+    Ready { metadata: TorrentMetadata },
+    Pending,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct QbittorrentMetadata {
+    hash: String,
+    info: QbittorrentMetadataInfo,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentMetadataInfo {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    files: Vec<QbittorrentMetadataFile>,
+    #[serde(default)]
+    length: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentMetadataFile {
+    path: String,
+    length: u64,
+}
+
+impl From<QbittorrentMetadata> for TorrentMetadata {
+    fn from(metadata: QbittorrentMetadata) -> Self {
+        let name = metadata.info.name.unwrap_or_default();
+        let files = if metadata.info.files.is_empty() {
+            metadata
+                .info
+                .length
+                .map(|length| TorrentMetadataFile {
+                    path: name.clone(),
+                    length,
+                })
+                .into_iter()
+                .collect()
+        } else {
+            metadata
+                .info
+                .files
+                .into_iter()
+                .map(|file| TorrentMetadataFile {
+                    path: file.path,
+                    length: file.length,
+                })
+                .collect()
+        };
+
+        Self {
+            hash: metadata.hash,
+            name,
+            files,
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Default, Debug, PartialEq, Eq)]
@@ -367,6 +447,53 @@ pub async fn fetch_default_save_path(
 }
 
 #[tauri::command]
+pub async fn parse_torrent_metadata(
+    files: Vec<AddTorrentFile>,
+    manager: State<'_, ConnectionManager>,
+) -> Result<Vec<TorrentMetadata>, String> {
+    let files: Vec<AddTorrentFile> = files
+        .into_iter()
+        .filter(|file| !file.name.trim().is_empty() && !file.base64_content.trim().is_empty())
+        .collect();
+    if files.is_empty() {
+        return Err("Choose at least one torrent file.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .parse_metadata(&files)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_torrent_metadata(
+    source: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<MetadataFetch, String> {
+    let source = source.trim().to_string();
+    if source.is_empty() {
+        return Err("Provide a magnet link or URL.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .fetch_metadata(&source)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn disconnect_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
@@ -584,6 +711,97 @@ impl QbittorrentClient {
         Ok(path.trim().to_string())
     }
 
+    async fn parse_metadata(
+        &self,
+        files: &[AddTorrentFile],
+    ) -> Result<Vec<TorrentMetadata>, ConnectionError> {
+        let url = self.api_url("api/v2/torrents/parseMetadata")?;
+        let mut form = Form::new();
+        // qBittorrent keys parsed uploads by the part filename, so use the
+        // WebUI's scheme of sequential dummy names to avoid collisions.
+        for (index, file) in files.iter().enumerate() {
+            let content = BASE64_STANDARD
+                .decode(file.base64_content.trim())
+                .map_err(|error| {
+                    ConnectionError::InvalidConfiguration(format!(
+                        "Could not read the torrent file {}: {error}",
+                        file.name
+                    ))
+                })?;
+            let part = Part::bytes(content)
+                .file_name(index.to_string())
+                .mime_str("application/x-bittorrent")
+                .map_err(|error| {
+                    ConnectionError::InvalidConfiguration(format!(
+                        "Could not prepare the torrent file {}: {error}",
+                        file.name
+                    ))
+                })?;
+            form = form.part("file", part);
+        }
+
+        let request = self.authentication.apply(self.http.post(url).multipart(form));
+        let response = request.send().await.map_err(|error| {
+            ConnectionError::ConnectionFailed(format!(
+                "Could not reach qBittorrent at {}: {error}",
+                self.display_endpoint()
+            ))
+        })?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                Err(ConnectionError::AuthenticationFailed)
+            }
+            status if status.is_success() => response
+                .json::<Vec<QbittorrentMetadata>>()
+                .await
+                .map(|list| list.into_iter().map(TorrentMetadata::from).collect())
+                .map_err(|error| {
+                    ConnectionError::InvalidResponse(format!(
+                        "qBittorrent returned an unreadable metadata response: {error}"
+                    ))
+                }),
+            status => Err(ConnectionError::InvalidResponse(format!(
+                "qBittorrent could not read the torrent file (HTTP {status})."
+            ))),
+        }
+    }
+
+    async fn fetch_metadata(&self, source: &str) -> Result<MetadataFetch, ConnectionError> {
+        let form = [("source", source.to_string())];
+        let url = self.api_url("api/v2/torrents/fetchMetadata")?;
+        let request = self.authentication.apply(self.http.post(url).form(&form));
+        let response = request.send().await.map_err(|error| {
+            ConnectionError::ConnectionFailed(format!(
+                "Could not reach qBittorrent at {}: {error}",
+                self.display_endpoint()
+            ))
+        })?;
+
+        match response.status() {
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+                Err(ConnectionError::AuthenticationFailed)
+            }
+            // 200: metadata is available now. 202: the instance is still
+            // fetching it from the swarm; poll again.
+            StatusCode::OK => response
+                .json::<QbittorrentMetadata>()
+                .await
+                .map(|metadata| MetadataFetch::Ready {
+                    metadata: metadata.into(),
+                })
+                .map_err(|error| {
+                    ConnectionError::InvalidResponse(format!(
+                        "qBittorrent returned an unreadable metadata response: {error}"
+                    ))
+                }),
+            StatusCode::ACCEPTED => Ok(MetadataFetch::Pending),
+            status => Err(ConnectionError::InvalidResponse(format!(
+                "qBittorrent could not fetch the metadata (HTTP {status})."
+            ))),
+        }
+    }
+
     async fn add_torrents(
         &self,
         input: &AddTorrentsInput,
@@ -621,6 +839,14 @@ impl QbittorrentClient {
             form = form.text("savepath", save_path.to_string());
         }
         form = form.text("contentLayout", input.content_layout.as_qbittorrent_value());
+        if let Some(priorities) = &input.file_priorities {
+            let joined = priorities
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            form = form.text("filePriorities", joined);
+        }
 
         let request = self.authentication.apply(self.http.post(url).multipart(form));
         let response = request.send().await.map_err(|error| {
@@ -894,6 +1120,19 @@ fn normalize_add_input(input: AddTorrentsInput) -> Result<AddTorrentsInput, Stri
         return Err("Provide a magnet link, URL, or .torrent file.".to_string());
     }
 
+    let file_priorities = match input.file_priorities {
+        Some(priorities) if !priorities.is_empty() => {
+            if urls.len() != 1 || !files.is_empty() {
+                return Err(
+                    "File priorities can only apply to a single torrent added by link or hash."
+                        .to_string(),
+                );
+            }
+            Some(priorities)
+        }
+        _ => None,
+    };
+
     Ok(AddTorrentsInput {
         urls,
         files,
@@ -906,6 +1145,7 @@ fn normalize_add_input(input: AddTorrentsInput) -> Result<AddTorrentsInput, Stri
             .map(|save_path| save_path.trim().to_string())
             .filter(|save_path| !save_path.is_empty()),
         content_layout: input.content_layout,
+        file_priorities,
     })
 }
 
@@ -1012,6 +1252,7 @@ mod tests {
             category: Some("  Linux  ".to_string()),
             save_path: Some(" ".to_string()),
             content_layout: AddContentLayout::Subfolder,
+            file_priorities: None,
         })
         .unwrap();
 
@@ -1028,6 +1269,7 @@ mod tests {
             category: None,
             save_path: None,
             content_layout: AddContentLayout::Original,
+            file_priorities: None,
         })
         .is_err());
     }
@@ -1209,6 +1451,7 @@ mod tests {
             category: Some("Linux".to_string()),
             save_path: Some("C:/Downloads/Finished".to_string()),
             content_layout: AddContentLayout::Subfolder,
+            file_priorities: None,
         };
 
         let outcome =
@@ -1254,6 +1497,7 @@ mod tests {
             category: None,
             save_path: None,
             content_layout: AddContentLayout::Original,
+            file_priorities: None,
         };
 
         let outcome =
@@ -1286,6 +1530,7 @@ mod tests {
             category: None,
             save_path: None,
             content_layout: AddContentLayout::Original,
+            file_priorities: None,
         };
 
         let outcome =
@@ -1313,6 +1558,122 @@ mod tests {
 
         assert_eq!(path, "C:/Downloads");
         assert!(requests[0].starts_with("GET /api/v2/app/defaultSavePath "));
+    }
+
+    #[test]
+    fn parses_torrent_files_into_metadata() {
+        let metadata_json = r#"[{
+            "hash":"v2hash123",
+            "infohash_v1":"v1hash123",
+            "infohash_v2":"v2hash123",
+            "info":{
+                "name":"Show.S01",
+                "files":[
+                    {"path":"Show.S01/ep1.mkv","length":1000},
+                    {"path":"Show.S01/extras/notes.txt","length":50}
+                ]
+            }
+        }]"#;
+        let (endpoint, requests, server) = serve_responses(vec![metadata_json]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+        let files = vec![AddTorrentFile {
+            name: "show.torrent".to_string(),
+            base64_content: BASE64_STANDARD.encode(b"parsed-torrent-bytes"),
+        }];
+
+        let metadata =
+            tauri::async_runtime::block_on(async { client.parse_metadata(&files).await.unwrap() });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert_eq!(metadata.len(), 1);
+        assert_eq!(metadata[0].hash, "v2hash123");
+        assert_eq!(metadata[0].name, "Show.S01");
+        assert_eq!(metadata[0].files.len(), 2);
+        assert_eq!(metadata[0].files[0].path, "Show.S01/ep1.mkv");
+        assert_eq!(metadata[0].files[0].length, 1000);
+        assert!(requests[0].starts_with("POST /api/v2/torrents/parseMetadata "));
+        assert!(requests[0].contains("filename=\"0\""));
+        assert!(requests[0].contains("parsed-torrent-bytes"));
+    }
+
+    #[test]
+    fn fetches_metadata_for_magnets_with_a_pending_phase() {
+        let metadata_json = r#"{
+            "hash":"v2hash123",
+            "info":{"name":"Linux ISO","length":4096}
+        }"#;
+        let (endpoint, requests, server) =
+            serve_status_responses(vec![(202, "{}"), (200, metadata_json)]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        let (pending, ready) = tauri::async_runtime::block_on(async {
+            (
+                client.fetch_metadata("magnet:?xt=urn:btih:abc").await.unwrap(),
+                client.fetch_metadata("magnet:?xt=urn:btih:abc").await.unwrap(),
+            )
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(matches!(pending, MetadataFetch::Pending));
+        match ready {
+            MetadataFetch::Ready { metadata } => {
+                assert_eq!(metadata.hash, "v2hash123");
+                assert_eq!(metadata.name, "Linux ISO");
+                assert_eq!(metadata.files.len(), 1);
+                assert_eq!(metadata.files[0].path, "Linux ISO");
+                assert_eq!(metadata.files[0].length, 4096);
+            }
+            MetadataFetch::Pending => panic!("expected ready metadata"),
+        }
+        assert!(requests
+            .iter()
+            .all(|request| request.contains("source=magnet%3A%3Fxt%3Durn%3Abtih%3Aabc")));
+    }
+
+    #[test]
+    fn adds_a_single_torrent_with_file_priorities() {
+        let outcome_json =
+            r#"{"success_count":1,"failure_count":0,"pending_count":0,"added_torrent_ids":["abc"]}"#;
+        let (endpoint, requests, server) = serve_responses(vec![outcome_json]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+        let input = AddTorrentsInput {
+            urls: vec!["v2hash123".to_string()],
+            files: Vec::new(),
+            category: None,
+            save_path: None,
+            content_layout: AddContentLayout::Original,
+            file_priorities: Some(vec![1, 0, 1]),
+        };
+
+        tauri::async_runtime::block_on(async { client.add_torrents(&input).await.unwrap() });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests[0].contains("name=\"filePriorities\""));
+        assert!(requests[0].contains("1,0,1"));
     }
 
     fn serve_responses(

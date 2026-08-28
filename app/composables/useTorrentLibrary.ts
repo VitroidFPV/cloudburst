@@ -1,4 +1,4 @@
-import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, MetadataFetch, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId, TorrentMetadata } from '~/types/torrent'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
@@ -237,6 +237,30 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
+  const parseTorrentMetadata = async (files: AddTorrentFile[]): Promise<TorrentMetadata[] | null> => {
+    const cleaned = files.filter(file => file.name.trim() && file.base64Content.trim())
+    if (!cleaned.length || connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.parseTorrentMetadata(cleaned)
+    }
+    catch {
+      return null
+    }
+  }
+
+  const fetchTorrentMetadata = async (source: string): Promise<MetadataFetch | null> => {
+    const trimmed = source.trim()
+    if (!trimmed || connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchTorrentMetadata(trimmed)
+    }
+    catch {
+      return null
+    }
+  }
+
   const disconnect = async () => {
     const operation = beginOperation()
 
@@ -338,6 +362,8 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     addTorrents,
     loadDefaultSavePath,
     defaultSavePath,
+    parseTorrentMetadata,
+    fetchTorrentMetadata,
     retry,
     startAutoRefresh,
     disconnect,
