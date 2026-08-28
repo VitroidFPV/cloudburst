@@ -48,6 +48,7 @@ const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): Qbittorrent
   connect: unexpected,
   restore: unexpected,
   refresh: unexpected,
+  setTorrentPaused: unexpected,
   disconnect: async () => {},
   ...overrides,
 })
@@ -107,6 +108,40 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.connectionError.value).toBe('qBittorrent is unavailable')
     expect(library.stale.value).toBe(true)
     expect(library.torrents.value).toEqual([torrent])
+  })
+
+  it('updates selected torrent activity from the authoritative response', async () => {
+    const pausedTorrent = { ...torrent, status: 'paused' as const }
+    const pausedSnapshot = { ...snapshot, torrents: [pausedTorrent] }
+    const setTorrentPaused = vi.fn().mockResolvedValue(pausedSnapshot)
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      setTorrentPaused,
+    }))
+
+    await library.connect(connectionInput)
+
+    expect(await library.setTorrentsPaused(['torrent-1', 'torrent-1'], true)).toBe(true)
+    expect(setTorrentPaused).toHaveBeenCalledWith(['torrent-1'], true)
+    expect(library.torrents.value).toEqual([pausedTorrent])
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('keeps the current snapshot connected when a torrent action fails', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      setTorrentPaused: async () => {
+        throw new Error('qBittorrent rejected the request')
+      },
+    }))
+
+    await library.connect(connectionInput)
+
+    expect(await library.setTorrentsPaused(['torrent-1'], true)).toBe(false)
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.stale.value).toBe(false)
+    expect(library.torrents.value).toEqual([torrent])
+    expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
   })
 
   it('retries a saved profile with backoff and returns to normal polling after recovery', async () => {

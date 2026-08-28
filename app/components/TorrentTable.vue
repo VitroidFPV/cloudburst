@@ -1,18 +1,27 @@
 <script setup lang="ts">
-import type { TableColumn } from '@nuxt/ui'
+import type { ContextMenuItem, TableColumn, TableRow } from '@nuxt/ui'
 import type { Torrent, TorrentStatus } from '~/types/torrent'
 import { formatAddedOn, formatAddedOnFull, formatBytes, formatEta, formatSpeed, statusIcon, statusLabel } from '~/utils/torrent-format'
+import { resolveTorrentSelection, shouldSelectAllTorrents } from '~/utils/torrent-selection'
 
-defineProps<{
+const props = defineProps<{
   torrents: Torrent[]
+  actionsDisabled?: boolean
+  actionPending?: boolean
+}>()
+
+const emit = defineEmits<{
+  'set-paused': [torrentIds: string[], paused: boolean]
 }>()
 
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
 const UProgress = resolveComponent('UProgress')
 const UButton = resolveComponent('UButton')
+const UCheckbox = resolveComponent('UCheckbox')
 
 const defaultColumnSizing = {
+  select: 44,
   name: 320,
   progress: 140,
   status: 130,
@@ -43,6 +52,80 @@ const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibili
 const columnVisibilityStorageKey = 'cloudburst:torrent-column-visibility'
 const sorting = ref<Array<{ id: string, desc: boolean }>>([])
 const sortingStorageKey = 'cloudburst:torrent-column-sorting'
+const rowSelection = ref<Record<string, boolean>>({})
+const selectionAnchorId = ref<string>()
+
+interface TorrentTableInstance {
+  tableApi: {
+    getRowModel: () => { rows: TableRow<Torrent>[] }
+  }
+}
+
+const torrentTable = useTemplateRef<TorrentTableInstance>('torrentTable')
+
+const selectedTorrentIds = computed(() => Object.entries(rowSelection.value)
+  .filter(([, selected]) => selected)
+  .map(([torrentId]) => torrentId))
+const selectedTorrents = computed(() => {
+  const torrentsById = new Map(props.torrents.map(torrent => [torrent.id, torrent]))
+  return selectedTorrentIds.value.flatMap(torrentId => torrentsById.get(torrentId) || [])
+})
+const selectedCount = computed(() => selectedTorrents.value.length)
+const canStartSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status === 'paused'))
+const canStopSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status !== 'paused'))
+const activityActionsDisabled = computed(() => props.actionsDisabled || props.actionPending)
+
+const emitSelectedActivity = (paused: boolean) => {
+  if (!selectedCount.value || activityActionsDisabled.value) return
+  emit('set-paused', selectedTorrents.value.map(torrent => torrent.id), paused)
+}
+
+const contextMenuItems = computed<ContextMenuItem[][]>(() => [[
+  {
+    label: 'Start',
+    icon: 'i-lucide-play',
+    disabled: activityActionsDisabled.value || !canStartSelected.value,
+    onSelect: () => emitSelectedActivity(false),
+  },
+  {
+    label: 'Stop',
+    icon: 'i-lucide-square',
+    disabled: activityActionsDisabled.value || !canStopSelected.value,
+    onSelect: () => emitSelectedActivity(true),
+  },
+]])
+
+const selectRow = (event: Event, row: TableRow<Torrent>) => {
+  const mouseEvent = event as MouseEvent
+  const additive = mouseEvent.ctrlKey || mouseEvent.metaKey
+  const result = resolveTorrentSelection({
+    orderedIds: (torrentTable.value?.tableApi.getRowModel().rows || []).map(orderedRow => orderedRow.id),
+    targetId: row.id,
+    selected: rowSelection.value,
+    anchorId: selectionAnchorId.value,
+    additive,
+    range: mouseEvent.shiftKey,
+  })
+
+  rowSelection.value = result.selected
+  selectionAnchorId.value = result.anchorId
+}
+
+const prepareRowContextMenu = (_event: Event, row: TableRow<Torrent>) => {
+  if (!row.getIsSelected()) {
+    rowSelection.value = { [row.id]: true }
+    selectionAnchorId.value = row.id
+  }
+}
+
+const resetSelectionAnchor = () => {
+  selectionAnchorId.value = undefined
+}
+
+const toggleRow = (row: TableRow<Torrent>, selected: boolean) => {
+  selectionAnchorId.value = row.id
+  row.toggleSelected(selected)
+}
 
 const isSortingEntry = (entry: unknown): entry is { id: string, desc: boolean } => {
   if (typeof entry !== 'object' || entry === null) return false
@@ -270,6 +353,37 @@ const statusTextClass: Record<TorrentStatus, string> = {
 
 const columns: TableColumn<Torrent>[] = [
   {
+    id: 'select',
+    size: defaultColumnSizing.select,
+    minSize: defaultColumnSizing.select,
+    maxSize: defaultColumnSizing.select,
+    enableHiding: false,
+    enableResizing: false,
+    enableSorting: false,
+    meta: {
+      class: {
+        th: 'w-11 px-3',
+        td: 'w-11 px-3',
+      },
+    },
+    header: ({ table }) => h(UCheckbox, {
+      modelValue: table.getIsSomeRowsSelected() ? 'indeterminate' : table.getIsAllRowsSelected(),
+      'aria-label': 'Select all torrents',
+      'onUpdate:modelValue': () => {
+        resetSelectionAnchor()
+        table.toggleAllRowsSelected(shouldSelectAllTorrents(
+          table.getIsSomeRowsSelected(),
+          table.getIsAllRowsSelected(),
+        ))
+      },
+    }),
+    cell: ({ row }) => h(UCheckbox, {
+      modelValue: row.getIsSelected(),
+      'aria-label': `Select ${row.original.name}`,
+      'onUpdate:modelValue': (value: boolean | 'indeterminate') => toggleRow(row, Boolean(value)),
+    }),
+  },
+  {
     accessorKey: 'name',
     header: resizableHeader('Torrent'),
     size: defaultColumnSizing.name,
@@ -434,6 +548,11 @@ onBeforeUnmount(() => {
 watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.stringify(sizing)), { deep: true })
 watch(columnVisibility, visibility => localStorage.setItem(columnVisibilityStorageKey, JSON.stringify(visibility)), { deep: true })
 watch(sorting, state => localStorage.setItem(sortingStorageKey, JSON.stringify(state)), { deep: true })
+watch(() => props.torrents, (torrents) => {
+  const visibleIds = new Set(torrents.map(torrent => torrent.id))
+  rowSelection.value = Object.fromEntries(Object.entries(rowSelection.value).filter(([id]) => visibleIds.has(id)))
+  if (selectionAnchorId.value && !visibleIds.has(selectionAnchorId.value)) selectionAnchorId.value = undefined
+})
 </script>
 
 <template>
@@ -442,10 +561,34 @@ watch(sorting, state => localStorage.setItem(sortingStorageKey, JSON.stringify(s
       <h1 class="text-2xl font-semibold text-highlighted">
         Torrents
       </h1>
-      <UBadge label="Read only" color="neutral" variant="subtle" />
+      <UBadge v-if="selectedCount" :label="`${selectedCount} selected`" color="primary" variant="subtle" />
     </div>
 
     <div class="flex shrink-0 items-center gap-2">
+      <div v-if="selectedCount" class="flex items-center gap-1">
+        <UButton
+          label="Start"
+          icon="i-lucide-play"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          aria-label="Start selected torrents"
+          :disabled="activityActionsDisabled || !canStartSelected"
+          :loading="actionPending"
+          @click="emitSelectedActivity(false)"
+        />
+        <UButton
+          label="Stop"
+          icon="i-lucide-square"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          aria-label="Stop selected torrents"
+          :disabled="activityActionsDisabled || !canStopSelected"
+          :loading="actionPending"
+          @click="emitSelectedActivity(true)"
+        />
+      </div>
       <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
         <UButton
           label="Columns"
@@ -462,19 +605,27 @@ watch(sorting, state => localStorage.setItem(sortingStorageKey, JSON.stringify(s
 
   <slot name="notice" />
 
-  <UTable
-    v-if="torrents.length"
-    v-model:column-sizing="columnSizing"
-    v-model:column-visibility="columnVisibility"
-    v-model:sorting="sorting"
-    :data="torrents"
-    :columns="columns"
-    :column-sizing-options="{ columnResizeMode: 'onEnd' }"
-    :virtualize="{ estimateSize: 65, overscan: 8 }"
-    :style="{ '--torrent-table-width': `${tableWidth}px` }"
-    :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
-    class="torrent-table min-h-0 flex-1"
-  />
+  <UContextMenu v-if="torrents.length" :items="contextMenuItems">
+    <div class="flex min-h-0 flex-1">
+      <UTable
+        ref="torrentTable"
+        v-model:column-sizing="columnSizing"
+        v-model:column-visibility="columnVisibility"
+        v-model:row-selection="rowSelection"
+        v-model:sorting="sorting"
+        :data="torrents"
+        :columns="columns"
+        :column-sizing-options="{ columnResizeMode: 'onEnd' }"
+        :get-row-id="torrent => torrent.id"
+        :on-contextmenu="prepareRowContextMenu"
+        :on-select="selectRow"
+        :virtualize="{ estimateSize: 65, overscan: 8 }"
+        :style="{ '--torrent-table-width': `${tableWidth}px` }"
+        :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
+        class="torrent-table min-h-0 flex-1"
+      />
+    </div>
+  </UContextMenu>
 
   <div v-else class="grid min-h-64 flex-1 place-items-center text-center">
     <slot name="empty" />
@@ -486,6 +637,22 @@ watch(sorting, state => localStorage.setItem(sortingStorageKey, JSON.stringify(s
   width: 100%;
   min-width: var(--torrent-table-width);
   table-layout: fixed;
+}
+
+.torrent-table tbody > tr[data-selectable='true']:hover {
+  background-color: color-mix(in oklab, var(--ui-bg-accented) 65%, transparent);
+}
+
+.torrent-table tbody > tr[data-selected='true'] {
+  background-color: color-mix(in oklab, var(--ui-bg-accented) 78%, transparent);
+}
+
+.torrent-table tbody > tr[data-selected='true']:hover {
+  background-color: color-mix(in oklab, var(--ui-bg-accented) 90%, transparent);
+}
+
+.torrent-table tbody {
+  user-select: none;
 }
 
 .torrent-table .column-resize-highlight {

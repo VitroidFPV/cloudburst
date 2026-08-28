@@ -39,13 +39,13 @@ pnpm generate
 ## Current structure
 
 - `app/components/TorrentDashboard.vue` owns the application layout and connection orchestration.
-- `app/components/TorrentTable.vue` owns torrent columns, sorting, resizing, and persisted table preferences.
+- `app/components/TorrentTable.vue` owns torrent selection, the row context menu, torrent activity controls, columns, sorting, resizing, and persisted table preferences.
 - `app/composables/useTorrentLibrary.ts` is the typed frontend seam for connection and torrent state.
 - `src-tauri/src/qbittorrent.rs` owns qBittorrent authentication, compatibility checks, and read-only API access.
 - `src-tauri/` contains the desktop application shell and its permissions.
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-Cloudburst saves one active connection profile and restores it when the desktop application starts. API keys and passwords are kept in Windows Credential Manager or the Linux Secret Service; the profile file contains only the WebUI URL, authentication mode, and optional username. Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer, refreshes the torrent list without exposing mutation commands, and retains the last known torrents as stale while reconnecting with capped backoff if the active connection is lost. Multiple profiles and process-based connection resolution are not implemented yet.
+Cloudburst saves one active connection profile and restores it when the desktop application starts. API keys and passwords are kept in Windows Credential Manager or the Linux Secret Service; the profile file contains only the WebUI URL, authentication mode, and optional username. Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer, can start and stop selected torrents from the table toolbar or row context menu, and retains the last known torrents as stale while reconnecting with capped backoff if the active connection is lost. Multiple profiles and process-based connection resolution are not implemented yet.
 
 Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.

@@ -20,10 +20,13 @@ const {
   savedProfile,
   stale,
   refreshing,
+  activityUpdating,
+  torrentActionError,
   connect,
   restoreSavedConnection,
   retry,
   startAutoRefresh,
+  setTorrentsPaused,
   disconnect,
   chooseFilter,
   chooseCategory,
@@ -74,6 +77,8 @@ const connectionDotClass = computed(() => {
   if (connectionStatus.value === 'connecting') return 'animate-pulse bg-muted'
   return 'bg-error'
 })
+
+const torrentActionsDisabled = computed(() => connectionStatus.value !== 'connected' || stale.value)
 
 const canReuseSavedCredential = computed(() => {
   if (!savedProfile.value) return false
@@ -141,6 +146,26 @@ const disconnectConnection = async () => {
   }
 }
 
+const updateTorrentActivity = async (torrentIds: string[], paused: boolean) => {
+  const successful = await setTorrentsPaused(torrentIds, paused)
+  const action = paused ? 'stopped' : 'started'
+
+  if (successful) {
+    toast.add({
+      title: `${torrentIds.length === 1 ? 'Torrent' : 'Torrents'} ${action}`,
+      description: `${torrentIds.length} selected torrent${torrentIds.length === 1 ? '' : 's'} ${action}.`,
+      color: 'success',
+    })
+    return
+  }
+
+  toast.add({
+    title: `Could not ${paused ? 'stop' : 'start'} ${torrentIds.length === 1 ? 'torrent' : 'torrents'}`,
+    description: torrentActionError.value || 'The torrent action is unavailable while qBittorrent is disconnected.',
+    color: 'error',
+  })
+}
+
 let stopAutoRefresh: (() => void) | undefined
 
 onMounted(() => {
@@ -194,7 +219,12 @@ onBeforeUnmount(() => {
 
     <UDashboardPanel id="torrent-list">
       <template #body>
-        <TorrentTable :torrents="visibleTorrents">
+        <TorrentTable
+          :torrents="visibleTorrents"
+          :actions-disabled="torrentActionsDisabled"
+          :action-pending="activityUpdating"
+          @set-paused="updateTorrentActivity"
+        >
           <template #actions>
             <UButton
               v-if="connectionEndpoint"
@@ -204,6 +234,7 @@ onBeforeUnmount(() => {
               size="sm"
               aria-label="Refresh torrents"
               :loading="refreshing"
+              :disabled="activityUpdating"
               @click="retryConnection"
             />
             <UButton

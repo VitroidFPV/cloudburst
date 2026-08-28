@@ -211,6 +211,30 @@ pub async fn refresh_qbittorrent(
 }
 
 #[tauri::command]
+pub async fn set_torrents_paused(
+    torrent_ids: Vec<String>,
+    paused: bool,
+    manager: State<'_, ConnectionManager>,
+) -> Result<ConnectionSnapshot, String> {
+    let torrent_ids = unique_torrent_ids(torrent_ids);
+    if torrent_ids.is_empty() {
+        return Err("Select at least one torrent.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .set_paused(&torrent_ids, paused)
+        .await
+        .map_err(|error| error.to_string())?;
+    active.snapshot().await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn disconnect_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
@@ -390,13 +414,47 @@ impl QbittorrentClient {
         Ok(torrents.into_iter().map(Torrent::from).collect())
     }
 
+    async fn set_paused(
+        &self,
+        torrent_ids: &[String],
+        paused: bool,
+    ) -> Result<(), ConnectionError> {
+        let path = if paused {
+            "api/v2/torrents/stop"
+        } else {
+            "api/v2/torrents/start"
+        };
+        let form = [("hashes", torrent_ids.join("|"))];
+        self.post_form(path, &form).await?;
+        Ok(())
+    }
+
     async fn get(&self, path: &str) -> Result<reqwest::Response, ConnectionError> {
+        let url = self.api_url(path)?;
+        let request = self.authentication.apply(self.http.get(url));
+        self.send(request).await
+    }
+
+    async fn post_form(
+        &self,
+        path: &str,
+        form: &[(&str, String)],
+    ) -> Result<reqwest::Response, ConnectionError> {
+        let url = self.api_url(path)?;
+        let request = self.authentication.apply(self.http.post(url).form(form));
+        self.send(request).await
+    }
+
+    fn api_url(&self, path: &str) -> Result<Url, ConnectionError> {
         let url = self.endpoint.join(path).map_err(|error| {
             ConnectionError::InvalidConfiguration(format!(
                 "Failed to build a qBittorrent API URL: {error}"
             ))
         })?;
-        let request = self.authentication.apply(self.http.get(url));
+        Ok(url)
+    }
+
+    async fn send(&self, request: RequestBuilder) -> Result<reqwest::Response, ConnectionError> {
         let response = request.send().await.map_err(|error| {
             ConnectionError::ConnectionFailed(format!(
                 "Could not reach qBittorrent at {}: {error}",
@@ -568,6 +626,16 @@ fn non_negative(value: i64) -> u64 {
     value.max(0) as u64
 }
 
+fn unique_torrent_ids(torrent_ids: Vec<String>) -> Vec<String> {
+    torrent_ids.into_iter().fold(Vec::new(), |mut unique, id| {
+        let id = id.trim().to_string();
+        if !id.is_empty() && !unique.contains(&id) {
+            unique.push(id);
+        }
+        unique
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,6 +699,19 @@ mod tests {
         assert_eq!(map_status("checkingUP"), TorrentStatus::Checking);
         assert_eq!(map_status("stalledDL"), TorrentStatus::Stalled);
         assert_eq!(map_status("missingFiles"), TorrentStatus::Error);
+    }
+
+    #[test]
+    fn normalizes_selected_torrent_ids() {
+        assert_eq!(
+            unique_torrent_ids(vec![
+                " abc123 ".to_string(),
+                "".to_string(),
+                "abc123".to_string(),
+                "def456".to_string(),
+            ]),
+            ["abc123", "def456"]
+        );
     }
 
     #[test]
@@ -706,6 +787,37 @@ mod tests {
         assert!(requests
             .iter()
             .all(|request| request.contains("authorization: Basic YWRtaW46c2VjcmV0")));
+    }
+
+    #[test]
+    fn starts_and_stops_selected_torrents() {
+        let (endpoint, requests, server) = serve_responses(vec!["Ok.", "Ok."]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+        let torrent_ids = vec!["abc123".to_string(), "def456".to_string()];
+
+        tauri::async_runtime::block_on(async {
+            client.set_paused(&torrent_ids, true).await.unwrap();
+            client.set_paused(&torrent_ids, false).await.unwrap();
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests[0].starts_with("POST /api/v2/torrents/stop "));
+        assert!(requests[1].starts_with("POST /api/v2/torrents/start "));
+        assert!(requests
+            .iter()
+            .all(|request| request.contains("hashes=abc123%7Cdef456")));
+        assert!(requests
+            .iter()
+            .all(|request| request
+                .contains("authorization: Bearer qbt_0000000000000000000000000000")));
     }
 
     fn serve_responses(
