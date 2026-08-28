@@ -89,7 +89,7 @@ describe('TorrentTable', () => {
     expect(wrapper.emitted('remove-torrents')).toBeUndefined()
 
     const removeButtons = Array.from(modal.querySelectorAll('button'))
-      .filter(button => ['Remove', 'Remove and files'].includes(button.textContent?.trim() || ''))
+      .filter(button => ['Remove', 'Remove torrent and files'].includes(button.textContent?.trim() || ''))
 
     await removeButtons.find(button => button.textContent?.trim() === 'Remove')!.click()
     await flushPromises()
@@ -98,7 +98,7 @@ describe('TorrentTable', () => {
     await wrapper.get('[aria-label="Remove selected torrents"]').trigger('click')
     await flushPromises()
     await Array.from(document.body.querySelectorAll('button'))
-      .find(button => button.textContent?.trim() === 'Remove and files')!.click()
+      .find(button => button.textContent?.trim() === 'Remove torrent and files')!.click()
     await flushPromises()
 
     expect(wrapper.emitted('remove-torrents')).toEqual([

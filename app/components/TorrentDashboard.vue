@@ -276,7 +276,7 @@ const extractMagnets = (text: string) => text
 
 const onDragEnter = (event: DragEvent) => {
   const types = Array.from(event.dataTransfer?.types ?? [])
-  if (!types.includes('Files') && !types.includes('text/uri-list')) return
+  if (!types.includes('Files') && !types.includes('text/uri-list') && !types.includes('text/plain')) return
   dragDepth += 1
   dropActive.value = true
 }
@@ -292,7 +292,13 @@ const onDrop = (event: DragEvent) => {
 
   const torrentFiles = Array.from(event.dataTransfer?.files ?? [])
     .filter(file => file.name.toLowerCase().endsWith('.torrent'))
-  const magnets = extractMagnets(event.dataTransfer?.getData('text/uri-list') ?? event.dataTransfer?.getData('text') ?? '')
+  // getData returns an empty string for a missing type, so the fallbacks
+  // must be chained with || rather than ??.
+  const draggedText = event.dataTransfer?.getData('text/uri-list')
+    || event.dataTransfer?.getData('text')
+    || event.dataTransfer?.getData('text/plain')
+    || ''
+  const magnets = extractMagnets(draggedText)
   if (!torrentFiles.length && !magnets.length) return
 
   void loadDefaultSavePath()

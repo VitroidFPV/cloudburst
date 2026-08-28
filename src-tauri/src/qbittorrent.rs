@@ -864,7 +864,8 @@ impl QbittorrentClient {
                 "qBittorrent rejected the torrent data as unreadable.".to_string(),
             )),
             // 200: added synchronously. 202: URLs/magnets still being fetched.
-            // 409: nothing was added, usually duplicates. All carry the outcome body.
+            // 409: nothing was added, usually duplicates. Some conflicts carry
+            // the outcome body; others answer with plain text.
             status if status.is_success() || status == StatusCode::CONFLICT => {
                 let text = response.text().await.map_err(|error| {
                     ConnectionError::InvalidResponse(format!(
@@ -874,13 +875,15 @@ impl QbittorrentClient {
                 if text.trim().is_empty() {
                     return Ok(AddTorrentsOutcome::default());
                 }
-                serde_json::from_str::<QbittorrentAddOutcome>(&text)
-                    .map(Into::into)
-                    .map_err(|error| {
-                        ConnectionError::InvalidResponse(format!(
-                            "qBittorrent returned an unreadable add response: {error}"
-                        ))
-                    })
+                match serde_json::from_str::<QbittorrentAddOutcome>(&text) {
+                    Ok(outcome) => Ok(outcome.into()),
+                    // A duplicate add answers HTTP 409 with a plain-text body,
+                    // which still means nothing was added.
+                    Err(_) if status == StatusCode::CONFLICT => Ok(AddTorrentsOutcome::default()),
+                    Err(error) => Err(ConnectionError::InvalidResponse(format!(
+                        "qBittorrent returned an unreadable add response: {error}"
+                    ))),
+                }
             }
             status => Err(ConnectionError::ConnectionFailed(format!(
                 "qBittorrent at {} returned HTTP {status}.",
@@ -1507,6 +1510,37 @@ mod tests {
 
         assert_eq!(outcome.success_count, 0);
         assert_eq!(outcome.failure_count, 2);
+        assert!(requests[0].starts_with("POST /api/v2/torrents/add "));
+    }
+
+    #[test]
+    fn treats_a_plain_text_conflict_as_nothing_added() {
+        let (endpoint, requests, server) = serve_status_responses(vec![(409, "Conflict")]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+        let input = AddTorrentsInput {
+            urls: vec!["magnet:?xt=urn:btih:duplicate".to_string()],
+            files: Vec::new(),
+            category: None,
+            save_path: None,
+            content_layout: AddContentLayout::Original,
+            file_priorities: None,
+        };
+
+        let outcome =
+            tauri::async_runtime::block_on(async { client.add_torrents(&input).await.unwrap() });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert_eq!(outcome.success_count, 0);
+        assert_eq!(outcome.failure_count, 0);
+        assert!(outcome.added_torrent_ids.is_empty());
         assert!(requests[0].starts_with("POST /api/v2/torrents/add "));
     }
 

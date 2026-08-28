@@ -671,7 +671,7 @@ watch(() => props.autoSelectIds, (ids) => {
     <template #body>
       <p class="text-sm text-muted">
         Choose <span class="text-highlighted">Remove</span> to keep downloaded content on disk, or
-        <span class="text-highlighted">Remove and files</span> to delete it.
+        <span class="text-highlighted">Remove torrent and files</span> to delete it.
       </p>
     </template>
 
@@ -683,7 +683,7 @@ watch(() => props.autoSelectIds, (ids) => {
         <div class="flex gap-2">
           <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
           <UButton type="button" label="Remove" color="error" variant="soft" @click="confirmRemoval(false)" />
-          <UButton type="button" label="Remove and files" color="error" variant="solid" @click="confirmRemoval(true)" />
+          <UButton type="button" label="Remove torrent and files" color="error" variant="solid" @click="confirmRemoval(true)" />
         </div>
       </div>
     </template>
