@@ -30,6 +30,7 @@ const {
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
 const UProgress = resolveComponent('UProgress')
+const UButton = resolveComponent('UButton')
 
 const defaultColumnSizing = {
   name: 320,
@@ -60,6 +61,18 @@ const hideableColumns = [
 const defaultColumnVisibility: Record<string, boolean> = { ratio: false, seeds: false, peers: false, tags: false }
 const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
 const columnVisibilityStorageKey = 'cloudburst:torrent-column-visibility'
+const sorting = ref<Array<{ id: string, desc: boolean }>>([])
+const sortingStorageKey = 'cloudburst:torrent-column-sorting'
+
+const isSortingEntry = (entry: unknown): entry is { id: string, desc: boolean } => {
+  if (typeof entry !== 'object' || entry === null) return false
+  const { id, desc } = entry as Record<string, unknown>
+  return typeof id === 'string' && id in defaultColumnSizing && typeof desc === 'boolean'
+}
+
+const sortByStatusLabel = (a: { original: Torrent }, b: { original: Torrent }) => statusLabel[a.original.status].localeCompare(statusLabel[b.original.status])
+const sortByEtaSeconds = (a: { original: Torrent }, b: { original: Torrent }) => (a.original.etaSeconds ?? Number.POSITIVE_INFINITY) - (b.original.etaSeconds ?? Number.POSITIVE_INFINITY)
+const sortByTags = (a: { original: Torrent }, b: { original: Torrent }) => a.original.tags.join(', ').localeCompare(b.original.tags.join(', '))
 
 const isColumnVisible = (columnId: string) => columnVisibility.value[columnId] !== false
 
@@ -90,6 +103,8 @@ interface ResizableHeaderContext {
       columnDef: { minSize?: number, maxSize?: number }
       getSize: () => number
       resetSize: () => void
+      getIsSorted: () => false | 'asc' | 'desc'
+      toggleSorting: (desc?: boolean) => void
     }
   }
 }
@@ -218,27 +233,40 @@ const resizeColumnWithKeyboard = (event: KeyboardEvent, column: ResizableHeaderC
   }
 }
 
-const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) => h('div', { class: 'relative flex items-center pe-2' }, [
-  h('span', label),
-  h('div', {
-    role: 'separator',
-    tabindex: 0,
-    'aria-label': `Resize ${label} column`,
-    'aria-orientation': 'vertical',
-    'aria-valuemin': header.column.columnDef.minSize,
-    'aria-valuemax': header.column.columnDef.maxSize,
-    'aria-valuenow': header.column.getSize(),
-    class: [
-      'absolute -inset-y-3.5 -right-6 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
-      'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-accented after:transition-colors',
-      'hover:after:bg-primary focus-visible:after:w-0.5 focus-visible:after:bg-primary',
-      'data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-primary',
-    ],
-    onPointerdown: (event: PointerEvent) => startColumnResize(event, header.column),
-    onDblclick: () => header.column.resetSize(),
-    onKeydown: (event: KeyboardEvent) => resizeColumnWithKeyboard(event, header.column),
-  }),
-])
+const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) => {
+  const isSorted = header.column.getIsSorted()
+
+  return h('div', { class: 'relative flex items-center pe-2' }, [
+    h(UButton, {
+      color: 'neutral',
+      variant: 'ghost',
+      size: 'sm',
+      label,
+      icon: isSorted ? (isSorted === 'asc' ? 'i-lucide-arrow-up-narrow-wide' : 'i-lucide-arrow-down-wide-narrow') : 'i-lucide-arrow-up-down',
+      class: '-ms-2.5',
+      'aria-label': `Sort by ${label}`,
+      onClick: () => header.column.toggleSorting(header.column.getIsSorted() === 'asc'),
+    }),
+    h('div', {
+      role: 'separator',
+      tabindex: 0,
+      'aria-label': `Resize ${label} column`,
+      'aria-orientation': 'vertical',
+      'aria-valuemin': header.column.columnDef.minSize,
+      'aria-valuemax': header.column.columnDef.maxSize,
+      'aria-valuenow': header.column.getSize(),
+      class: [
+        'absolute -inset-y-3.5 -right-6 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
+        'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-accented after:transition-colors',
+        'hover:after:bg-primary focus-visible:after:w-0.5 focus-visible:after:bg-primary',
+        'data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-primary',
+      ],
+      onPointerdown: (event: PointerEvent) => startColumnResize(event, header.column),
+      onDblclick: () => header.column.resetSize(),
+      onKeydown: (event: KeyboardEvent) => resizeColumnWithKeyboard(event, header.column),
+    }),
+  ])
+}
 
 const settingsOpen = ref(false)
 const authenticationMode = ref<AuthenticationMode>('apiKey')
@@ -395,6 +423,7 @@ const columns: TableColumn<Torrent>[] = [
   {
     accessorKey: 'status',
     header: resizableHeader('Status'),
+    sortingFn: sortByStatusLabel,
     size: defaultColumnSizing.status,
     minSize: 96,
     maxSize: 220,
@@ -422,6 +451,7 @@ const columns: TableColumn<Torrent>[] = [
   {
     accessorKey: 'etaSeconds',
     header: resizableHeader('ETA'),
+    sortingFn: sortByEtaSeconds,
     size: defaultColumnSizing.etaSeconds,
     minSize: 80,
     maxSize: 180,
@@ -467,6 +497,7 @@ const columns: TableColumn<Torrent>[] = [
   {
     accessorKey: 'tags',
     header: resizableHeader('Tags'),
+    sortingFn: sortByTags,
     size: defaultColumnSizing.tags,
     minSize: 90,
     maxSize: 280,
@@ -481,6 +512,7 @@ const columns: TableColumn<Torrent>[] = [
     cell: () => null,
     enableResizing: false,
     enableHiding: false,
+    enableSorting: false,
     meta: {
       class: {
         th: 'p-0',
@@ -505,9 +537,13 @@ onMounted(() => {
       hideableColumns.some(({ id }) => id === column) && typeof visible === 'boolean'
     ))) as Record<string, boolean>
     columnVisibility.value = { ...defaultColumnVisibility, ...validVisibility }
+
+    const savedSorting = JSON.parse(localStorage.getItem(sortingStorageKey) || '[]') as unknown
+    sorting.value = Array.isArray(savedSorting) ? savedSorting.filter(isSortingEntry).slice(0, 3) : []
   } catch {
     localStorage.removeItem(columnSizingStorageKey)
     localStorage.removeItem(columnVisibilityStorageKey)
+    localStorage.removeItem(sortingStorageKey)
   }
 
   void restoreSavedConnection()
@@ -523,6 +559,7 @@ onBeforeUnmount(() => {
 
 watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.stringify(sizing)), { deep: true })
 watch(columnVisibility, visibility => localStorage.setItem(columnVisibilityStorageKey, JSON.stringify(visibility)), { deep: true })
+watch(sorting, state => localStorage.setItem(sortingStorageKey, JSON.stringify(state)), { deep: true })
 </script>
 
 <template>
@@ -619,6 +656,7 @@ watch(columnVisibility, visibility => localStorage.setItem(columnVisibilityStora
           v-if="visibleTorrents.length"
           v-model:column-sizing="columnSizing"
           v-model:column-visibility="columnVisibility"
+          v-model:sorting="sorting"
           :data="visibleTorrents"
           :columns="columns"
           :column-sizing-options="{ columnResizeMode: 'onEnd' }"
