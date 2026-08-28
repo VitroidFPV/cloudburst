@@ -43,6 +43,6 @@ pnpm generate
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-Cloudburst currently supports in-memory connections using either a qBittorrent API key or WebUI username and password. It requires qBittorrent 5.2 or newer, refreshes the torrent list without exposing mutation commands, and retains the last known torrents as stale if the active connection is lost. Connection-profile persistence and protected credential storage are not implemented yet.
+Cloudburst saves one active connection profile and restores it when the desktop application starts. API keys and passwords are kept in Windows Credential Manager or the Linux Secret Service; the profile file contains only the WebUI URL, authentication mode, and optional username. Cloudburst requires qBittorrent 5.2 or newer, refreshes the torrent list without exposing mutation commands, and retains the last known torrents as stale if the active connection is lost. Multiple profiles and process-based connection resolution are not implemented yet.
 
 Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.

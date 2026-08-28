@@ -1,3 +1,4 @@
+use crate::connection_profile::{self, AuthenticationMode, ConnectionProfile, StoredConnection};
 use reqwest::{Client, RequestBuilder, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::RwLock, time::Duration};
@@ -33,6 +34,7 @@ enum Authentication {
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInput {
     endpoint: String,
+    authentication_mode: AuthenticationMode,
     api_key: Option<String>,
     username: Option<String>,
     password: Option<String>,
@@ -44,6 +46,14 @@ pub struct ConnectionSnapshot {
     endpoint: String,
     version: String,
     torrents: Vec<Torrent>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreOutcome {
+    profile: Option<ConnectionProfile>,
+    snapshot: Option<ConnectionSnapshot>,
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -128,24 +138,64 @@ impl fmt::Display for ConnectionError {
 pub async fn connect_qbittorrent(
     input: ConnectionInput,
     manager: State<'_, ConnectionManager>,
+    app: tauri::AppHandle,
 ) -> Result<ConnectionSnapshot, String> {
-    let client = QbittorrentClient::new(input).map_err(|error| error.to_string())?;
-    let version = client.version().await.map_err(|error| error.to_string())?;
+    let (input, profile, secret) = resolve_connection_input(input, &app).await?;
+    let (active, snapshot) = establish_connection(input)
+        .await
+        .map_err(|error| error.to_string())?;
+    connection_profile::save(&app, profile, secret).await?;
 
-    if !is_supported_version(&version) {
-        return Err(ConnectionError::UnsupportedVersion(version).to_string());
-    }
-
-    let active = ActiveConnection { client, version };
-    let snapshot = active.snapshot().await.map_err(|error| error.to_string())?;
-
-    let mut connection = manager
-        .active
-        .write()
-        .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?;
-    *connection = Some(active);
+    set_active_connection(&manager, active)?;
 
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub async fn restore_saved_qbittorrent(
+    manager: State<'_, ConnectionManager>,
+    app: tauri::AppHandle,
+) -> Result<RestoreOutcome, String> {
+    let stored = match connection_profile::load(&app).await {
+        Ok(Some(stored)) => stored,
+        Ok(None) => {
+            return Ok(RestoreOutcome {
+                profile: None,
+                snapshot: None,
+                error: None,
+            });
+        }
+        Err(error) => {
+            return Ok(RestoreOutcome {
+                profile: None,
+                snapshot: None,
+                error: Some(error),
+            });
+        }
+    };
+    let profile = stored.profile.clone();
+
+    Ok(
+        match establish_connection(ConnectionInput::from(stored)).await {
+            Ok((active, snapshot)) => match set_active_connection(&manager, active) {
+                Ok(()) => RestoreOutcome {
+                    profile: Some(profile),
+                    snapshot: Some(snapshot),
+                    error: None,
+                },
+                Err(error) => RestoreOutcome {
+                    profile: Some(profile),
+                    snapshot: None,
+                    error: Some(error),
+                },
+            },
+            Err(error) => RestoreOutcome {
+                profile: Some(profile),
+                snapshot: None,
+                error: Some(error.to_string()),
+            },
+        },
+    )
 }
 
 #[tauri::command]
@@ -163,13 +213,73 @@ pub async fn refresh_qbittorrent(
 }
 
 #[tauri::command]
-pub fn disconnect_qbittorrent(manager: State<'_, ConnectionManager>) -> Result<(), String> {
+pub async fn disconnect_qbittorrent(
+    manager: State<'_, ConnectionManager>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    connection_profile::clear(&app).await?;
     let mut connection = manager
         .active
         .write()
         .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?;
     *connection = None;
     Ok(())
+}
+
+async fn establish_connection(
+    input: ConnectionInput,
+) -> Result<(ActiveConnection, ConnectionSnapshot), ConnectionError> {
+    let client = QbittorrentClient::new(input)?;
+    let version = client.version().await?;
+
+    if !is_supported_version(&version) {
+        return Err(ConnectionError::UnsupportedVersion(version));
+    }
+
+    let active = ActiveConnection { client, version };
+    let snapshot = active.snapshot().await?;
+    Ok((active, snapshot))
+}
+
+async fn resolve_connection_input(
+    input: ConnectionInput,
+    app: &tauri::AppHandle,
+) -> Result<(ConnectionInput, ConnectionProfile, String), String> {
+    let profile = input.profile().map_err(|error| error.to_string())?;
+    let supplied_secret = input.secret();
+    let secret = if supplied_secret.is_empty() {
+        let stored = connection_profile::load(app)
+            .await?
+            .ok_or_else(|| missing_credential_message(input.authentication_mode))?;
+        if stored.profile != profile {
+            return Err(missing_credential_message(input.authentication_mode));
+        }
+        stored.secret
+    } else {
+        supplied_secret
+    };
+    let resolved = input.with_secret(secret.clone());
+
+    Ok((resolved, profile, secret))
+}
+
+fn set_active_connection(
+    manager: &ConnectionManager,
+    active: ActiveConnection,
+) -> Result<(), String> {
+    let mut connection = manager
+        .active
+        .write()
+        .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?;
+    *connection = Some(active);
+    Ok(())
+}
+
+fn missing_credential_message(mode: AuthenticationMode) -> String {
+    match mode {
+        AuthenticationMode::ApiKey => "Enter a qBittorrent API key.".to_string(),
+        AuthenticationMode::Credentials => "Enter the qBittorrent WebUI password.".to_string(),
+    }
 }
 
 impl ActiveConnection {
@@ -179,6 +289,68 @@ impl ActiveConnection {
             version: self.version.clone(),
             torrents: self.client.torrents().await?,
         })
+    }
+}
+
+impl ConnectionInput {
+    fn profile(&self) -> Result<ConnectionProfile, ConnectionError> {
+        let endpoint = normalize_endpoint(&self.endpoint)?
+            .as_str()
+            .trim_end_matches('/')
+            .to_string();
+        let username = match self.authentication_mode {
+            AuthenticationMode::ApiKey => None,
+            AuthenticationMode::Credentials => {
+                let username = self
+                    .username
+                    .as_ref()
+                    .filter(|username| !username.trim().is_empty())
+                    .ok_or_else(|| {
+                        ConnectionError::InvalidConfiguration(
+                            "Enter the qBittorrent WebUI username.".to_string(),
+                        )
+                    })?;
+                Some(username.clone())
+            }
+        };
+
+        Ok(ConnectionProfile {
+            endpoint,
+            authentication_mode: self.authentication_mode,
+            username,
+        })
+    }
+
+    fn secret(&self) -> String {
+        match self.authentication_mode {
+            AuthenticationMode::ApiKey => self.api_key.clone().unwrap_or_default(),
+            AuthenticationMode::Credentials => self.password.clone().unwrap_or_default(),
+        }
+    }
+
+    fn with_secret(mut self, secret: String) -> Self {
+        match self.authentication_mode {
+            AuthenticationMode::ApiKey => self.api_key = Some(secret),
+            AuthenticationMode::Credentials => self.password = Some(secret),
+        }
+        self
+    }
+}
+
+impl From<StoredConnection> for ConnectionInput {
+    fn from(stored: StoredConnection) -> Self {
+        let (api_key, password) = match stored.profile.authentication_mode {
+            AuthenticationMode::ApiKey => (Some(stored.secret), None),
+            AuthenticationMode::Credentials => (None, Some(stored.secret)),
+        };
+
+        Self {
+            endpoint: stored.profile.endpoint,
+            authentication_mode: stored.profile.authentication_mode,
+            api_key,
+            username: stored.profile.username,
+            password,
+        }
     }
 }
 
@@ -268,32 +440,33 @@ impl QbittorrentClient {
 
 impl Authentication {
     fn from_input(input: ConnectionInput) -> Result<Self, ConnectionError> {
-        if let Some(api_key) = input.api_key.filter(|key| !key.trim().is_empty()) {
-            let api_key = api_key.trim().to_string();
-            let valid = api_key.len() == 32
-                && api_key.starts_with("qbt_")
-                && api_key[4..]
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric());
+        match input.authentication_mode {
+            AuthenticationMode::ApiKey => {
+                let api_key = input.api_key.unwrap_or_default().trim().to_string();
+                let valid = api_key.len() == 32
+                    && api_key.starts_with("qbt_")
+                    && api_key[4..]
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric());
 
-            if !valid {
-                return Err(ConnectionError::InvalidConfiguration(
-                    "The API key must start with qbt_ and contain 32 characters.".to_string(),
-                ));
+                if !valid {
+                    return Err(ConnectionError::InvalidConfiguration(
+                        "The API key must start with qbt_ and contain 32 characters.".to_string(),
+                    ));
+                }
+
+                Ok(Self::ApiKey(api_key))
             }
-
-            return Ok(Self::ApiKey(api_key));
-        }
-
-        match (input.username, input.password) {
-            (Some(username), Some(password))
-                if !username.trim().is_empty() && !password.is_empty() =>
-            {
-                Ok(Self::Credentials { username, password })
-            }
-            _ => Err(ConnectionError::InvalidConfiguration(
-                "Enter an API key or a WebUI username and password.".to_string(),
-            )),
+            AuthenticationMode::Credentials => match (input.username, input.password) {
+                (Some(username), Some(password))
+                    if !username.trim().is_empty() && !password.is_empty() =>
+                {
+                    Ok(Self::Credentials { username, password })
+                }
+                _ => Err(ConnectionError::InvalidConfiguration(
+                    "Enter the qBittorrent WebUI username and password.".to_string(),
+                )),
+            },
         }
     }
 
@@ -474,6 +647,7 @@ mod tests {
         let (endpoint, requests, server) = serve_responses(vec!["v5.2.1", torrent_json]);
         let client = QbittorrentClient::new(ConnectionInput {
             endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
             api_key: Some("qbt_0000000000000000000000000000".to_string()),
             username: None,
             password: None,
@@ -507,6 +681,7 @@ mod tests {
         let (endpoint, requests, server) = serve_responses(vec!["v5.2.0", "[]"]);
         let client = QbittorrentClient::new(ConnectionInput {
             endpoint,
+            authentication_mode: AuthenticationMode::Credentials,
             api_key: None,
             username: Some("admin".to_string()),
             password: Some("secret".to_string()),

@@ -1,3 +1,4 @@
+mod connection_profile;
 mod qbittorrent;
 mod tray;
 
@@ -9,6 +10,7 @@ pub fn run() {
         .on_window_event(tray::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             qbittorrent::connect_qbittorrent,
+            qbittorrent::restore_saved_qbittorrent,
             qbittorrent::refresh_qbittorrent,
             qbittorrent::disconnect_qbittorrent
         ])

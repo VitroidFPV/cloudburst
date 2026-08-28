@@ -16,9 +16,11 @@ const {
   connectionError,
   connectionEndpoint,
   connectionVersion,
+  savedProfile,
   stale,
   refreshing,
   connect,
+  restoreSavedConnection,
   refresh,
   disconnect,
   chooseFilter,
@@ -84,6 +86,27 @@ const connectionDotClass = computed(() => {
   return 'bg-error'
 })
 
+const canReuseSavedCredential = computed(() => {
+  if (!savedProfile.value) return false
+
+  const currentEndpoint = connectionForm.endpoint.replace(/\/+$/, '')
+  const sameUsername = authenticationMode.value !== 'credentials'
+    || savedProfile.value.username === connectionForm.username
+
+  return savedProfile.value.endpoint === currentEndpoint
+    && savedProfile.value.authenticationMode === authenticationMode.value
+    && sameUsername
+})
+
+watch(savedProfile, (profile) => {
+  if (!profile) return
+  connectionForm.endpoint = profile.endpoint
+  authenticationMode.value = profile.authenticationMode
+  connectionForm.username = profile.username || ''
+  connectionForm.apiKey = ''
+  connectionForm.password = ''
+}, { immediate: true })
+
 const submitConnection = async () => {
   if (!('__TAURI_INTERNALS__' in window)) {
     connectionError.value = 'qBittorrent connections are available in the Cloudburst desktop app.'
@@ -91,9 +114,10 @@ const submitConnection = async () => {
   }
 
   const input: ConnectionInput = authenticationMode.value === 'apiKey'
-    ? { endpoint: connectionForm.endpoint, apiKey: connectionForm.apiKey }
+    ? { endpoint: connectionForm.endpoint, authenticationMode: 'apiKey', apiKey: connectionForm.apiKey }
     : {
         endpoint: connectionForm.endpoint,
+        authenticationMode: 'credentials',
         username: connectionForm.username,
         password: connectionForm.password,
       }
@@ -114,15 +138,20 @@ const retryConnection = async () => {
     return
   }
 
-  if (await refresh()) {
+  const restored = connectionStatus.value === 'disconnected' && savedProfile.value
+    ? await restoreSavedConnection()
+    : await refresh()
+
+  if (restored) {
     toast.add({ title: 'Connection restored', description: 'The torrent list is current again.', color: 'success' })
   }
 }
 
 const disconnectConnection = async () => {
-  await disconnect()
-  settingsOpen.value = false
-  toast.add({ title: 'qBittorrent disconnected', description: 'The active in-memory connection was cleared.', color: 'neutral' })
+  if (await disconnect()) {
+    settingsOpen.value = false
+    toast.add({ title: 'qBittorrent connection forgotten', description: 'The saved profile and protected credential were removed.', color: 'neutral' })
+  }
 }
 
 const columns: TableColumn<Torrent>[] = [
@@ -170,6 +199,7 @@ const columns: TableColumn<Torrent>[] = [
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
+  void restoreSavedConnection()
   refreshTimer = setInterval(() => {
     if (connectionStatus.value === 'connected') void refresh()
   }, 5_000)
@@ -319,7 +349,7 @@ onBeforeUnmount(() => {
           </div>
         </UFormField>
 
-        <UFormField v-if="authenticationMode === 'apiKey'" label="API key" description="Generate an API key in qBittorrent's WebUI preferences." required>
+        <UFormField v-if="authenticationMode === 'apiKey'" label="API key" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected API key.' : 'Generate an API key in qBittorrent\'s WebUI preferences.'" :required="!canReuseSavedCredential">
           <UInput v-model="connectionForm.apiKey" class="w-full" type="password" placeholder="qbt_…" autocomplete="off" />
         </UFormField>
 
@@ -327,7 +357,7 @@ onBeforeUnmount(() => {
           <UFormField label="Username" required>
             <UInput v-model="connectionForm.username" class="w-full" autocomplete="username" />
           </UFormField>
-          <UFormField label="Password" required>
+          <UFormField label="Password" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected password.' : undefined" :required="!canReuseSavedCredential">
             <UInput v-model="connectionForm.password" class="w-full" type="password" autocomplete="current-password" />
           </UFormField>
         </div>
@@ -337,13 +367,13 @@ onBeforeUnmount(() => {
           <span>{{ connectionError }}</span>
         </div>
 
-        <p class="text-xs text-muted">Credentials remain in memory only and are cleared when Cloudburst quits.</p>
+        <p class="text-xs text-muted">The credential is saved in the operating system vault. The profile stores only the URL, authentication mode, and username.</p>
       </form>
     </template>
 
     <template #footer>
       <div class="flex w-full items-center justify-between gap-3">
-        <UButton v-if="connectionEndpoint" type="button" label="Disconnect" color="error" variant="ghost" @click="disconnectConnection" />
+        <UButton v-if="savedProfile" type="button" label="Forget connection" color="error" variant="ghost" @click="disconnectConnection" />
         <span v-else />
         <div class="flex gap-2">
           <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="settingsOpen = false" />

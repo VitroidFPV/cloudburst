@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { ConnectionInput, ConnectionSnapshot, ConnectionStatus, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
+import type { ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
@@ -11,6 +11,7 @@ export const useTorrentLibrary = () => {
   const connectionError = useState('connection-error', () => '')
   const connectionEndpoint = useState('connection-endpoint', () => '')
   const connectionVersion = useState('connection-version', () => '')
+  const savedProfile = useState<ConnectionProfile | null>('saved-connection-profile', () => null)
   const stale = useState('connection-stale', () => false)
   const refreshing = useState('connection-refreshing', () => false)
 
@@ -54,7 +55,40 @@ export const useTorrentLibrary = () => {
     try {
       const snapshot = await invoke<ConnectionSnapshot>('connect_qbittorrent', { input })
       applySnapshot(snapshot)
+      savedProfile.value = {
+        endpoint: snapshot.endpoint,
+        authenticationMode: input.authenticationMode,
+        username: input.authenticationMode === 'credentials' ? input.username : undefined,
+      }
       return true
+    } catch (error) {
+      connectionStatus.value = 'disconnected'
+      connectionError.value = errorMessage(error)
+      stale.value = torrents.value.length > 0
+      return false
+    }
+  }
+
+  const restoreSavedConnection = async () => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
+
+    connectionStatus.value = 'connecting'
+    connectionError.value = ''
+
+    try {
+      const outcome = await invoke<RestoreOutcome>('restore_saved_qbittorrent')
+      savedProfile.value = outcome.profile
+
+      if (outcome.snapshot) {
+        applySnapshot(outcome.snapshot)
+        return true
+      }
+
+      connectionStatus.value = 'disconnected'
+      connectionError.value = outcome.error || ''
+      connectionEndpoint.value = outcome.profile?.endpoint || ''
+      stale.value = torrents.value.length > 0
+      return false
     } catch (error) {
       connectionStatus.value = 'disconnected'
       connectionError.value = errorMessage(error)
@@ -82,13 +116,20 @@ export const useTorrentLibrary = () => {
   }
 
   const disconnect = async () => {
-    await invoke('disconnect_qbittorrent')
-    torrents.value = []
-    connectionStatus.value = 'disconnected'
-    connectionError.value = ''
-    connectionEndpoint.value = ''
-    connectionVersion.value = ''
-    stale.value = false
+    try {
+      await invoke('disconnect_qbittorrent')
+      torrents.value = []
+      connectionStatus.value = 'disconnected'
+      connectionError.value = ''
+      connectionEndpoint.value = ''
+      connectionVersion.value = ''
+      savedProfile.value = null
+      stale.value = false
+      return true
+    } catch (error) {
+      connectionError.value = errorMessage(error)
+      return false
+    }
   }
 
   const chooseFilter = (filter: TorrentFilterId) => {
@@ -113,9 +154,11 @@ export const useTorrentLibrary = () => {
     connectionError,
     connectionEndpoint,
     connectionVersion,
+    savedProfile,
     stale,
     refreshing,
     connect,
+    restoreSavedConnection,
     refresh,
     disconnect,
     chooseFilter,

@@ -27,15 +27,28 @@ export interface Torrent {
 
 export interface ConnectionInput {
   endpoint: string
+  authenticationMode: AuthenticationMode
   apiKey?: string
   username?: string
   password?: string
+}
+
+export interface ConnectionProfile {
+  endpoint: string
+  authenticationMode: AuthenticationMode
+  username?: string
 }
 
 export interface ConnectionSnapshot {
   endpoint: string
   version: string
   torrents: Torrent[]
+}
+
+export interface RestoreOutcome {
+  profile: ConnectionProfile | null
+  snapshot: ConnectionSnapshot | null
+  error: string | null
 }
 
 export interface TorrentFilter {
