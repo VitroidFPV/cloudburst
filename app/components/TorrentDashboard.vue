@@ -189,8 +189,8 @@ const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) 
     'aria-valuemax': header.column.columnDef.maxSize,
     'aria-valuenow': header.column.getSize(),
     class: [
-      'absolute -inset-y-3.5 -right-2 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
-      'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-default after:transition-colors',
+      'absolute -inset-y-3.5 -right-6 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
+      'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-accented after:transition-colors',
       'hover:after:bg-primary focus-visible:after:w-0.5 focus-visible:after:bg-primary',
       'data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-primary',
     ],
@@ -347,7 +347,7 @@ const columns: TableColumn<Torrent>[] = [
     maxSize: 260,
     meta: resizableColumnMeta,
     cell: ({ row }) => h('div', { class: 'flex min-w-24 items-center gap-2' }, [
-      h(UProgress, { modelValue: row.original.progress, size: 'xs', class: 'w-16' }),
+      h(UProgress, { modelValue: row.original.progress, size: 'xs', class: 'min-w-0 flex-1' }),
       h('span', { class: 'w-10 text-right font-mono text-xs text-muted' }, `${row.original.progress}%`),
     ]),
   },
