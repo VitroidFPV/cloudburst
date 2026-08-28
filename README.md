@@ -1,6 +1,6 @@
 # Cloudburst
 
-Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains the Nuxt application scaffold, an in-memory torrent module, and a minimal Tauri 2 desktop shell. It does not connect to qBittorrent or implement native features yet.
+Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains the Nuxt application scaffold, an in-memory torrent module, and a Tauri 2 desktop shell with persistent tray behavior. It does not connect to qBittorrent yet.
 
 ## Development
 
@@ -43,4 +43,4 @@ pnpm generate
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-The placeholder module is intentionally local and non-persistent. Its implementation can later be replaced with qBittorrent integration without changing the page layout. The Tauri shell currently exposes no Cloudburst commands, tray behavior, or qBittorrent functionality.
+The placeholder module is intentionally local and non-persistent. Its implementation can later be replaced with qBittorrent integration without changing the page layout. Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process. The Tauri shell currently exposes no Cloudburst commands or qBittorrent functionality.
