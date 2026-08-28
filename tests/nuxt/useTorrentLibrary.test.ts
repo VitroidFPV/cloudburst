@@ -1,0 +1,162 @@
+import { clearNuxtState } from '#app'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { QbittorrentAdapter } from '~/adapters/qbittorrent'
+import { CONNECTION_POLL_INTERVAL_MS, CONNECTION_RETRY_DELAYS_MS, useTorrentLibrary } from '~/composables/useTorrentLibrary'
+import type { ConnectionInput, ConnectionProfile, ConnectionSnapshot, Torrent } from '~/types/torrent'
+
+const connectionInput: ConnectionInput = {
+  endpoint: 'http://localhost:8080',
+  authenticationMode: 'apiKey',
+  apiKey: 'qbt_0000000000000000000000000000',
+}
+
+const profile: ConnectionProfile = {
+  endpoint: 'http://localhost:8080',
+  authenticationMode: 'apiKey',
+}
+
+const torrent: Torrent = {
+  id: 'torrent-1',
+  name: 'Debian ISO',
+  status: 'downloading',
+  progress: 62.5,
+  size: 4096,
+  downloaded: 2560,
+  downSpeed: 1024,
+  upSpeed: 128,
+  etaSeconds: 90,
+  ratio: 0.5,
+  seeds: 12,
+  peers: 3,
+  category: 'Linux',
+  tags: ['iso'],
+  addedOn: 1_700_000_000,
+  savePath: 'C:/Downloads',
+}
+
+const snapshot: ConnectionSnapshot = {
+  endpoint: profile.endpoint,
+  version: '5.2.1',
+  torrents: [torrent],
+}
+
+const unexpected = async (): Promise<never> => {
+  throw new Error('Unexpected adapter call')
+}
+
+const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): QbittorrentAdapter => ({
+  connect: unexpected,
+  restore: unexpected,
+  refresh: unexpected,
+  disconnect: async () => {},
+  ...overrides,
+})
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver
+  })
+  return { promise, resolve }
+}
+
+describe('useTorrentLibrary connection lifecycle', () => {
+  beforeEach(() => {
+    clearNuxtState()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('ignores a refresh result superseded by forgetting the connection', async () => {
+    const pendingRefresh = deferred<ConnectionSnapshot>()
+    const adapter = createAdapter({
+      connect: async () => snapshot,
+      refresh: () => pendingRefresh.promise,
+    })
+    const library = useTorrentLibrary(adapter)
+
+    expect(await library.connect(connectionInput)).toBe(true)
+    const refreshResult = library.refresh()
+    expect(library.refreshing.value).toBe(true)
+
+    expect(await library.disconnect()).toBe(true)
+    pendingRefresh.resolve(snapshot)
+
+    expect(await refreshResult).toBe(false)
+    expect(library.connectionStatus.value).toBe('disconnected')
+    expect(library.torrents.value).toEqual([])
+    expect(library.savedProfile.value).toBeNull()
+    expect(library.refreshing.value).toBe(false)
+  })
+
+  it('retains the last snapshot as stale after a refresh failure', async () => {
+    const adapter = createAdapter({
+      connect: async () => snapshot,
+      refresh: async () => {
+        throw new Error('qBittorrent is unavailable')
+      },
+    })
+    const library = useTorrentLibrary(adapter)
+
+    await library.connect(connectionInput)
+
+    expect(await library.refresh()).toBe(false)
+    expect(library.connectionStatus.value).toBe('disconnected')
+    expect(library.connectionError.value).toBe('qBittorrent is unavailable')
+    expect(library.stale.value).toBe(true)
+    expect(library.torrents.value).toEqual([torrent])
+  })
+
+  it('retries a saved profile with backoff and returns to normal polling after recovery', async () => {
+    vi.useFakeTimers()
+    const restore = vi.fn()
+      .mockResolvedValueOnce({ profile, snapshot: null, error: 'Not reachable' })
+      .mockResolvedValueOnce({ profile, snapshot: null, error: 'Still unavailable' })
+      .mockResolvedValueOnce({ profile, snapshot, error: null })
+    const refresh = vi.fn().mockResolvedValue(snapshot)
+    const library = useTorrentLibrary(createAdapter({ restore, refresh }))
+
+    expect(await library.restoreSavedConnection()).toBe(false)
+    const stop = library.startAutoRefresh()
+
+    await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
+    expect(restore).toHaveBeenCalledTimes(2)
+    expect(library.connectionStatus.value).toBe('disconnected')
+
+    await vi.advanceTimersByTimeAsync(CONNECTION_RETRY_DELAYS_MS[0] - 1)
+    expect(restore).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(restore).toHaveBeenCalledTimes(3)
+    expect(library.connectionStatus.value).toBe('connected')
+
+    await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    stop()
+  })
+
+  it('caps repeated reconnect attempts at the longest retry delay', async () => {
+    vi.useFakeTimers()
+    const restore = vi.fn().mockResolvedValue({ profile, snapshot: null, error: 'Not reachable' })
+    const library = useTorrentLibrary(createAdapter({ restore }))
+
+    await library.restoreSavedConnection()
+    const stop = library.startAutoRefresh()
+    await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
+
+    for (const [index, delay] of CONNECTION_RETRY_DELAYS_MS.entries()) {
+      await vi.advanceTimersByTimeAsync(delay)
+      expect(restore).toHaveBeenCalledTimes(index + 3)
+    }
+
+    const maximumDelay = CONNECTION_RETRY_DELAYS_MS.at(-1)!
+    await vi.advanceTimersByTimeAsync(maximumDelay - 1)
+    expect(restore).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 2)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(restore).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 3)
+
+    stop()
+  })
+})

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { NavigationMenuItem } from '@nuxt/ui'
 import type { AuthenticationMode, ConnectionInput } from '~/types/torrent'
+import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { formatSpeed } from '~/utils/torrent-format'
 
 const toast = useToast()
@@ -21,7 +22,8 @@ const {
   refreshing,
   connect,
   restoreSavedConnection,
-  refresh,
+  retry,
+  startAutoRefresh,
   disconnect,
   chooseFilter,
   chooseCategory,
@@ -125,9 +127,7 @@ const retryConnection = async () => {
     return
   }
 
-  const restored = connectionStatus.value === 'disconnected' && savedProfile.value
-    ? await restoreSavedConnection()
-    : await refresh()
+  const restored = await retry()
 
   if (restored) {
     toast.add({ title: 'Connection restored', description: 'The torrent list is current again.', color: 'success' })
@@ -141,17 +141,15 @@ const disconnectConnection = async () => {
   }
 }
 
-let refreshTimer: ReturnType<typeof setInterval> | undefined
+let stopAutoRefresh: (() => void) | undefined
 
 onMounted(() => {
   void restoreSavedConnection()
-  refreshTimer = setInterval(() => {
-    if (connectionStatus.value === 'connected') void refresh()
-  }, 5_000)
+  stopAutoRefresh = startAutoRefresh()
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  stopAutoRefresh?.()
 })
 </script>
 

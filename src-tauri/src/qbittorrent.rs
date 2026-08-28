@@ -1,14 +1,16 @@
 use crate::connection_profile::{self, AuthenticationMode, ConnectionProfile, StoredConnection};
 use reqwest::{Client, RequestBuilder, StatusCode, Url};
 use serde::{Deserialize, Serialize};
-use std::{fmt, sync::RwLock, time::Duration};
+use std::{fmt, time::Duration};
 use tauri::State;
+use tokio::sync::Mutex;
 
 const MINIMUM_VERSION: (u64, u64, u64) = (5, 2, 0);
 
 #[derive(Default)]
 pub struct ConnectionManager {
-    active: RwLock<Option<ActiveConnection>>,
+    // Held for the full duration of each command so connection intents complete in order.
+    active: Mutex<Option<ActiveConnection>>,
 }
 
 #[derive(Clone)]
@@ -140,13 +142,14 @@ pub async fn connect_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
 ) -> Result<ConnectionSnapshot, String> {
+    let mut active_connection = manager.active.lock().await;
     let (input, profile, secret) = resolve_connection_input(input, &app).await?;
     let (active, snapshot) = establish_connection(input)
         .await
         .map_err(|error| error.to_string())?;
     connection_profile::save(&app, profile, secret).await?;
 
-    set_active_connection(&manager, active)?;
+    *active_connection = Some(active);
 
     Ok(snapshot)
 }
@@ -156,6 +159,7 @@ pub async fn restore_saved_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
 ) -> Result<RestoreOutcome, String> {
+    let mut active_connection = manager.active.lock().await;
     let stored = match connection_profile::load(&app).await {
         Ok(Some(stored)) => stored,
         Ok(None) => {
@@ -177,18 +181,14 @@ pub async fn restore_saved_qbittorrent(
 
     Ok(
         match establish_connection(ConnectionInput::from(stored)).await {
-            Ok((active, snapshot)) => match set_active_connection(&manager, active) {
-                Ok(()) => RestoreOutcome {
+            Ok((active, snapshot)) => {
+                *active_connection = Some(active);
+                RestoreOutcome {
                     profile: Some(profile),
                     snapshot: Some(snapshot),
                     error: None,
-                },
-                Err(error) => RestoreOutcome {
-                    profile: Some(profile),
-                    snapshot: None,
-                    error: Some(error),
-                },
-            },
+                }
+            }
             Err(error) => RestoreOutcome {
                 profile: Some(profile),
                 snapshot: None,
@@ -202,11 +202,9 @@ pub async fn restore_saved_qbittorrent(
 pub async fn refresh_qbittorrent(
     manager: State<'_, ConnectionManager>,
 ) -> Result<ConnectionSnapshot, String> {
-    let active = manager
-        .active
-        .read()
-        .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?
-        .clone()
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
         .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
 
     active.snapshot().await.map_err(|error| error.to_string())
@@ -217,12 +215,9 @@ pub async fn disconnect_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let mut active_connection = manager.active.lock().await;
     connection_profile::clear(&app).await?;
-    let mut connection = manager
-        .active
-        .write()
-        .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?;
-    *connection = None;
+    *active_connection = None;
     Ok(())
 }
 
@@ -261,18 +256,6 @@ async fn resolve_connection_input(
     let resolved = input.with_secret(secret.clone());
 
     Ok((resolved, profile, secret))
-}
-
-fn set_active_connection(
-    manager: &ConnectionManager,
-    active: ActiveConnection,
-) -> Result<(), String> {
-    let mut connection = manager
-        .active
-        .write()
-        .map_err(|_| "The qBittorrent connection state is unavailable.".to_string())?;
-    *connection = Some(active);
-    Ok(())
 }
 
 fn missing_credential_message(mode: AuthenticationMode) -> String {
@@ -522,6 +505,12 @@ fn normalize_endpoint(input: &str) -> Result<Url, ConnectionError> {
                 .to_string(),
         ));
     }
+    if endpoint.scheme() == "http" && !is_loopback_endpoint(&endpoint) {
+        return Err(ConnectionError::InvalidConfiguration(
+            "Remote qBittorrent connections must use HTTPS. Plain HTTP is allowed only for localhost."
+                .to_string(),
+        ));
+    }
     if !endpoint.username().is_empty() || endpoint.password().is_some() {
         return Err(ConnectionError::InvalidConfiguration(
             "Do not put credentials in the qBittorrent WebUI URL.".to_string(),
@@ -536,6 +525,16 @@ fn normalize_endpoint(input: &str) -> Result<Url, ConnectionError> {
     let path = format!("{}/", endpoint.path().trim_end_matches('/'));
     endpoint.set_path(&path);
     Ok(endpoint)
+}
+
+fn is_loopback_endpoint(endpoint: &Url) -> bool {
+    endpoint.host_str().is_some_and(|host| {
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    })
 }
 
 fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
@@ -603,6 +602,16 @@ mod tests {
         assert!(normalize_endpoint("ftp://localhost:8080").is_err());
         assert!(normalize_endpoint("http://admin:secret@localhost:8080").is_err());
         assert!(normalize_endpoint("http://localhost:8080?secret=value").is_err());
+    }
+
+    #[test]
+    fn requires_https_outside_loopback_addresses() {
+        assert!(normalize_endpoint("http://localhost:8080").is_ok());
+        assert!(normalize_endpoint("http://127.0.0.1:8080").is_ok());
+        assert!(normalize_endpoint("http://[::1]:8080").is_ok());
+        assert!(normalize_endpoint("https://qbittorrent.example.test").is_ok());
+        assert!(normalize_endpoint("http://qbittorrent.example.test").is_err());
+        assert!(normalize_endpoint("http://192.168.1.50:8080").is_err());
     }
 
     #[test]
