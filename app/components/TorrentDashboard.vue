@@ -278,13 +278,24 @@ const connectionForm = reactive({
 })
 
 const statusColor = {
-  downloading: 'primary',
-  seeding: 'success',
+  downloading: 'success',
+  seeding: 'info',
   paused: 'neutral',
-  checking: 'info',
+  checking: 'primary',
   stalled: 'warning',
   error: 'error',
 } as const satisfies Record<TorrentStatus, 'primary' | 'success' | 'neutral' | 'info' | 'warning' | 'error'>
+
+// Static classes so Tailwind can extract them; aligned with statusColor hues.
+// 'primary' is black/white in this theme, so transfer activity uses 'info' for a real hue.
+const statusTextClass: Record<TorrentStatus, string> = {
+  downloading: 'text-success',
+  seeding: 'text-info',
+  paused: 'text-dimmed',
+  checking: 'text-primary',
+  stalled: 'text-warning',
+  error: 'text-error',
+}
 
 const libraryItems = computed<NavigationMenuItem[]>(() => filters.value.map(filter => ({
   label: filter.label,
@@ -400,13 +411,17 @@ const columns: TableColumn<Torrent>[] = [
     maxSize: 720,
     enableHiding: false,
     meta: resizableColumnMeta,
-    cell: ({ row }) => h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
-      h(UIcon, { name: statusIcon[row.original.status], class: 'size-4 shrink-0 text-muted' }),
-      h('div', { class: 'min-w-0' }, [
-        h('p', { class: 'truncate font-medium text-highlighted' }, row.original.name),
-        h('p', { class: 'truncate text-xs text-muted' }, `${row.original.category || 'Uncategorized'} · ${formatBytes(row.original.size)}`),
-      ]),
-    ]),
+    cell: ({ row }) => {
+      const statusText = statusTextClass[row.original.status]
+
+      return h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
+        h(UIcon, { name: statusIcon[row.original.status], class: `size-4 shrink-0 ${statusText}` }),
+        h('div', { class: 'min-w-0' }, [
+          h('p', { class: `truncate font-medium ${statusText}` }, row.original.name),
+          h('p', { class: 'truncate text-xs text-muted' }, `${row.original.category || 'Uncategorized'} · ${formatBytes(row.original.size)}`),
+        ]),
+      ])
+    },
   },
   {
     accessorKey: 'progress',
