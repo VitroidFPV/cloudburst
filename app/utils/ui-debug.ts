@@ -56,7 +56,7 @@ export const uiDebugTorrents: Torrent[] = [
     peers: 210,
     category: 'video',
     tags: ['movie'],
-    addedOn: 1_755_500_000,
+    addedOn: 1_787_895_600,
     savePath: 'C:/Downloads/video',
   },
   {
@@ -74,7 +74,7 @@ export const uiDebugTorrents: Torrent[] = [
     peers: 168,
     category: 'video',
     tags: ['movie'],
-    addedOn: 1_755_580_000,
+    addedOn: 1_787_740_000,
     savePath: 'C:/Downloads/video',
   },
   {
@@ -92,7 +92,7 @@ export const uiDebugTorrents: Torrent[] = [
     peers: 57,
     category: 'audio',
     tags: ['flac'],
-    addedOn: 1_755_300_000,
+    addedOn: 1_784_400_000,
     savePath: 'C:/Downloads/audio',
   },
   {

@@ -11,6 +11,23 @@ export const formatBytes = (bytes: number) => {
 
 export const formatSpeed = (bytes: number) => bytes === 0 ? '—' : `${formatBytes(bytes)}/s`
 
+const addedOnFormatter = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+const addedOnFullFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+export const formatAddedOn = (timestamp: number) => {
+  const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp)
+  if (elapsedSeconds < 60) return 'Just now'
+  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`
+  if (elapsedSeconds < 30 * 86_400) return `${Math.floor(elapsedSeconds / 86_400)}d ago`
+
+  const date = new Date(timestamp * 1000)
+  const monthDay = addedOnFormatter.format(date)
+  return date.getFullYear() === new Date().getFullYear() ? monthDay : `${monthDay}, ${date.getFullYear()}`
+}
+
+export const formatAddedOnFull = (timestamp: number) => addedOnFullFormatter.format(new Date(timestamp * 1000))
+
 export const formatEta = (seconds: number | null, status: TorrentStatus) => {
   if (status === 'paused') return 'Paused'
   if (status === 'checking') return 'Checking'

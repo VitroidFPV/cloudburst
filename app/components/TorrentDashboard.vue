@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { NavigationMenuItem, TableColumn } from '@nuxt/ui'
 import type { AuthenticationMode, ConnectionInput, Torrent, TorrentStatus } from '~/types/torrent'
-import { formatBytes, formatEta, formatSpeed, statusIcon, statusLabel } from '~/utils/torrent-format'
+import { formatAddedOn, formatAddedOnFull, formatBytes, formatEta, formatSpeed, statusIcon, statusLabel } from '~/utils/torrent-format'
 
 const toast = useToast()
 const {
@@ -38,10 +38,50 @@ const defaultColumnSizing = {
   downSpeed: 110,
   upSpeed: 110,
   etaSeconds: 100,
+  ratio: 90,
+  seeds: 80,
+  peers: 80,
+  addedOn: 100,
+  tags: 140,
 }
+const hideableColumns = [
+  { id: 'progress', label: 'Progress' },
+  { id: 'status', label: 'Status' },
+  { id: 'downSpeed', label: 'Down speed' },
+  { id: 'upSpeed', label: 'Up speed' },
+  { id: 'etaSeconds', label: 'ETA' },
+  { id: 'ratio', label: 'Ratio' },
+  { id: 'seeds', label: 'Seeds' },
+  { id: 'peers', label: 'Peers' },
+  { id: 'addedOn', label: 'Added on' },
+  { id: 'tags', label: 'Tags' },
+]
+
+const defaultColumnVisibility: Record<string, boolean> = { ratio: false, seeds: false, peers: false, tags: false }
+const columnVisibility = ref<Record<string, boolean>>({ ...defaultColumnVisibility })
+const columnVisibilityStorageKey = 'cloudburst:torrent-column-visibility'
+
+const isColumnVisible = (columnId: string) => columnVisibility.value[columnId] !== false
+
+const toggleColumnVisibility = (columnId: string) => {
+  columnVisibility.value = { ...columnVisibility.value, [columnId]: !isColumnVisible(columnId) }
+}
+
+const columnVisibilityItems = computed(() => hideableColumns.map(column => ({
+  label: column.label,
+  type: 'checkbox' as const,
+  checked: isColumnVisible(column.id),
+  onSelect: (event: Event) => {
+    event.preventDefault()
+    toggleColumnVisibility(column.id)
+  },
+})))
+
 const columnSizing = ref<Record<string, number>>({ ...defaultColumnSizing })
 const columnSizingStorageKey = 'cloudburst:torrent-column-sizing'
-const tableWidth = computed(() => Object.values(columnSizing.value).reduce((total, size) => total + size, 0))
+const tableWidth = computed(() => Object.entries(columnSizing.value)
+  .filter(([column]) => isColumnVisible(column))
+  .reduce((total, [, size]) => total + size, 0))
 
 interface ResizableHeaderContext {
   header: {
@@ -330,6 +370,7 @@ const columns: TableColumn<Torrent>[] = [
     size: defaultColumnSizing.name,
     minSize: 180,
     maxSize: 720,
+    enableHiding: false,
     meta: resizableColumnMeta,
     cell: ({ row }) => h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
       h(UIcon, { name: statusIcon[row.original.status], class: 'size-4 shrink-0 text-muted' }),
@@ -388,10 +429,58 @@ const columns: TableColumn<Torrent>[] = [
     cell: ({ row }) => h('span', { class: 'font-mono text-xs text-muted' }, formatEta(row.original.etaSeconds, row.original.status)),
   },
   {
+    accessorKey: 'ratio',
+    header: resizableHeader('Ratio'),
+    size: defaultColumnSizing.ratio,
+    minSize: 70,
+    maxSize: 160,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => h('span', { class: 'font-mono text-xs tabular-nums' }, row.original.ratio.toFixed(2)),
+  },
+  {
+    accessorKey: 'seeds',
+    header: resizableHeader('Seeds'),
+    size: defaultColumnSizing.seeds,
+    minSize: 64,
+    maxSize: 160,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => h('span', { class: 'font-mono text-xs tabular-nums' }, String(row.original.seeds)),
+  },
+  {
+    accessorKey: 'peers',
+    header: resizableHeader('Peers'),
+    size: defaultColumnSizing.peers,
+    minSize: 64,
+    maxSize: 160,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => h('span', { class: 'font-mono text-xs tabular-nums' }, String(row.original.peers)),
+  },
+  {
+    accessorKey: 'addedOn',
+    header: resizableHeader('Added'),
+    size: defaultColumnSizing.addedOn,
+    minSize: 80,
+    maxSize: 200,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => h('span', { class: 'font-mono text-xs text-muted', title: formatAddedOnFull(row.original.addedOn) }, formatAddedOn(row.original.addedOn)),
+  },
+  {
+    accessorKey: 'tags',
+    header: resizableHeader('Tags'),
+    size: defaultColumnSizing.tags,
+    minSize: 90,
+    maxSize: 280,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => row.original.tags.length
+      ? h('div', { class: 'flex min-w-0 items-center gap-1 overflow-hidden' }, row.original.tags.map(tag => h(UBadge, { color: 'neutral', variant: 'subtle', size: 'sm', class: 'max-w-full shrink-0 truncate' }, () => tag)))
+      : h('span', { class: 'text-xs text-muted' }, '—'),
+  },
+  {
     id: 'layoutSpacer',
     header: () => null,
     cell: () => null,
     enableResizing: false,
+    enableHiding: false,
     meta: {
       class: {
         th: 'p-0',
@@ -410,8 +499,15 @@ onMounted(() => {
       column in defaultColumnSizing && typeof size === 'number' && Number.isFinite(size)
     ))) as Record<string, number>
     columnSizing.value = { ...defaultColumnSizing, ...validSizing }
+
+    const savedVisibility = JSON.parse(localStorage.getItem(columnVisibilityStorageKey) || '{}') as Record<string, unknown>
+    const validVisibility = Object.fromEntries(Object.entries(savedVisibility).filter(([column, visible]) => (
+      hideableColumns.some(({ id }) => id === column) && typeof visible === 'boolean'
+    ))) as Record<string, boolean>
+    columnVisibility.value = { ...defaultColumnVisibility, ...validVisibility }
   } catch {
     localStorage.removeItem(columnSizingStorageKey)
+    localStorage.removeItem(columnVisibilityStorageKey)
   }
 
   void restoreSavedConnection()
@@ -426,6 +522,7 @@ onBeforeUnmount(() => {
 })
 
 watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.stringify(sizing)), { deep: true })
+watch(columnVisibility, visibility => localStorage.setItem(columnVisibilityStorageKey, JSON.stringify(visibility)), { deep: true })
 </script>
 
 <template>
@@ -476,6 +573,16 @@ watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
+            <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
+              <UButton
+                label="Columns"
+                icon="i-lucide-columns-2"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                aria-label="Choose visible columns"
+              />
+            </UDropdownMenu>
             <UButton
               v-if="connectionEndpoint"
               icon="i-lucide-refresh-cw"
@@ -511,6 +618,7 @@ watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.
         <UTable
           v-if="visibleTorrents.length"
           v-model:column-sizing="columnSizing"
+          v-model:column-visibility="columnVisibility"
           :data="visibleTorrents"
           :columns="columns"
           :column-sizing-options="{ columnResizeMode: 'onEnd' }"
