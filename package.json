@@ -9,7 +9,12 @@
     "build": "nuxt build",
     "build:desktop": "tauri build",
     "generate": "nuxt generate",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "postinstall": "nuxt prepare",
     "preview": "nuxt preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "nuxt typecheck",
     "tauri": "tauri"
   },
@@ -20,8 +25,14 @@
     "nuxt": "^4.5.2"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
+    "@nuxt/test-utils": "^4.1.0",
     "@tauri-apps/cli": "^2.11.4",
+    "@vue/test-utils": "^2.5.0",
+    "eslint": "^10.9.1",
+    "happy-dom": "^20.11.10",
     "typescript": "^5.9.2",
+    "vitest": "^4.1.11",
     "vue-tsc": "^3.0.6"
   }
 }

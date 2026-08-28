@@ -3,7 +3,7 @@ export default defineNuxtConfig({
   ssr: false,
   telemetry: false,
   devtools: { enabled: false },
-  modules: ['@nuxt/ui'],
+  modules: ['@nuxt/eslint', '@nuxt/ui'],
   css: ['~/assets/css/main.css'],
   devServer: {
     host: '127.0.0.1',
