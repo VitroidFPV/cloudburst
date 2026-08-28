@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
+import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
@@ -14,6 +15,8 @@ export const useTorrentLibrary = () => {
   const savedProfile = useState<ConnectionProfile | null>('saved-connection-profile', () => null)
   const stale = useState('connection-stale', () => false)
   const refreshing = useState('connection-refreshing', () => false)
+
+  if (isUiDebugActive()) torrents.value = uiDebugTorrents
 
   const filters = computed<TorrentFilter[]>(() => [
     { id: 'all', label: 'All torrents', icon: 'i-lucide-list-filter', count: torrents.value.length },

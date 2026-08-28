@@ -31,6 +31,175 @@ const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
 const UProgress = resolveComponent('UProgress')
 
+const defaultColumnSizing = {
+  name: 320,
+  progress: 140,
+  status: 130,
+  downSpeed: 110,
+  upSpeed: 110,
+  etaSeconds: 100,
+}
+const columnSizing = ref<Record<string, number>>({ ...defaultColumnSizing })
+const columnSizingStorageKey = 'cloudburst:torrent-column-sizing'
+const tableWidth = computed(() => Object.values(columnSizing.value).reduce((total, size) => total + size, 0))
+
+interface ResizableHeaderContext {
+  header: {
+    column: {
+      id: string
+      columnDef: { minSize?: number, maxSize?: number }
+      getSize: () => number
+      resetSize: () => void
+    }
+  }
+}
+
+interface ResizableColumnContext {
+  column: {
+    getSize: () => number
+  }
+}
+
+const clampColumnSize = (column: ResizableHeaderContext['header']['column'], requestedSize: number) => {
+  const minimum = column.columnDef.minSize ?? 20
+  const maximum = column.columnDef.maxSize ?? Number.MAX_SAFE_INTEGER
+  return Math.min(maximum, Math.max(minimum, requestedSize))
+}
+
+const resizableColumnStyle = ({ column }: ResizableColumnContext) => ({
+  width: `${column.getSize()}px`,
+})
+
+const resizableColumnMeta = {
+  class: {
+    th: 'column-resize-highlight column-resize-highlight-header',
+    td: 'column-resize-highlight column-resize-highlight-cell',
+  },
+  style: {
+    th: resizableColumnStyle,
+    td: resizableColumnStyle,
+  },
+}
+
+let cancelActiveColumnResize: (() => void) | undefined
+
+const startColumnResize = (event: PointerEvent, column: ResizableHeaderContext['header']['column']) => {
+  if (!event.isPrimary || event.button !== 0) return
+
+  cancelActiveColumnResize?.()
+
+  const handle = event.currentTarget as HTMLElement
+  const headerCell = handle.closest('th') as HTMLTableCellElement | null
+  const tableRoot = handle.closest('.torrent-table')
+  if (!headerCell || !tableRoot) return
+
+  const columnIndex = headerCell.cellIndex
+  const highlightedCells = [
+    headerCell,
+    ...Array.from(tableRoot.querySelectorAll<HTMLTableCellElement>('tbody td'))
+      .filter(cell => cell.cellIndex === columnIndex && cell.colSpan === 1),
+  ]
+  const startX = event.clientX
+  const startSize = column.getSize()
+  let nextSize = startSize
+  let animationFrame: number | undefined
+  let finished = false
+
+  handle.dataset.resizing = 'true'
+  highlightedCells.forEach((cell) => {
+    cell.style.setProperty('--column-resize-highlight-opacity', '1')
+  })
+
+  const paintPreview = () => {
+    const delta = nextSize - startSize
+    handle.style.transform = `translateX(${delta}px)`
+    highlightedCells.forEach((cell) => {
+      cell.style.setProperty('--column-resize-highlight-width', `calc(100% + ${delta}px)`)
+    })
+    animationFrame = undefined
+  }
+
+  const updatePreview = (clientX: number) => {
+    nextSize = clampColumnSize(column, startSize + clientX - startX)
+    if (animationFrame === undefined) animationFrame = requestAnimationFrame(paintPreview)
+  }
+
+  const cleanup = (commit: boolean, clientX?: number) => {
+    if (finished) return
+    finished = true
+    if (clientX !== undefined) updatePreview(clientX)
+    if (animationFrame !== undefined) cancelAnimationFrame(animationFrame)
+    paintPreview()
+
+    document.removeEventListener('pointermove', handlePointerMove)
+    document.removeEventListener('pointerup', handlePointerUp)
+    document.removeEventListener('pointercancel', handlePointerCancel)
+    delete handle.dataset.resizing
+    handle.style.transform = ''
+    highlightedCells.forEach((cell) => {
+      cell.style.setProperty('--column-resize-highlight-opacity', '0')
+      cell.style.setProperty('--column-resize-highlight-width', '100%')
+    })
+
+    if (commit && nextSize !== startSize) {
+      columnSizing.value = { ...columnSizing.value, [column.id]: nextSize }
+    }
+    cancelActiveColumnResize = undefined
+  }
+
+  const handlePointerMove = (moveEvent: PointerEvent) => {
+    if (moveEvent.pointerId !== event.pointerId) return
+    if (moveEvent.cancelable) moveEvent.preventDefault()
+    updatePreview(moveEvent.clientX)
+  }
+  const handlePointerUp = (upEvent: PointerEvent) => {
+    if (upEvent.pointerId === event.pointerId) cleanup(true, upEvent.clientX)
+  }
+  const handlePointerCancel = (cancelEvent: PointerEvent) => {
+    if (cancelEvent.pointerId === event.pointerId) cleanup(false)
+  }
+
+  document.addEventListener('pointermove', handlePointerMove)
+  document.addEventListener('pointerup', handlePointerUp)
+  document.addEventListener('pointercancel', handlePointerCancel)
+  cancelActiveColumnResize = () => cleanup(false)
+}
+
+const resizeColumnWithKeyboard = (event: KeyboardEvent, column: ResizableHeaderContext['header']['column']) => {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+
+  event.preventDefault()
+  const delta = event.key === 'ArrowLeft' ? -16 : 16
+  const minimum = column.columnDef.minSize ?? 20
+  const maximum = column.columnDef.maxSize ?? Number.MAX_SAFE_INTEGER
+  columnSizing.value = {
+    ...columnSizing.value,
+    [column.id]: Math.min(maximum, Math.max(minimum, column.getSize() + delta)),
+  }
+}
+
+const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) => h('div', { class: 'relative flex items-center pe-2' }, [
+  h('span', label),
+  h('div', {
+    role: 'separator',
+    tabindex: 0,
+    'aria-label': `Resize ${label} column`,
+    'aria-orientation': 'vertical',
+    'aria-valuemin': header.column.columnDef.minSize,
+    'aria-valuemax': header.column.columnDef.maxSize,
+    'aria-valuenow': header.column.getSize(),
+    class: [
+      'absolute -inset-y-3.5 -right-2 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
+      'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-default after:transition-colors',
+      'hover:after:bg-primary focus-visible:after:w-0.5 focus-visible:after:bg-primary',
+      'data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-primary',
+    ],
+    onPointerdown: (event: PointerEvent) => startColumnResize(event, header.column),
+    onDblclick: () => header.column.resetSize(),
+    onKeydown: (event: KeyboardEvent) => resizeColumnWithKeyboard(event, header.column),
+  }),
+])
+
 const settingsOpen = ref(false)
 const authenticationMode = ref<AuthenticationMode>('apiKey')
 const connectionForm = reactive({
@@ -157,8 +326,12 @@ const disconnectConnection = async () => {
 const columns: TableColumn<Torrent>[] = [
   {
     accessorKey: 'name',
-    header: 'Torrent',
-    cell: ({ row }) => h('div', { class: 'flex max-w-72 min-w-0 items-center gap-3' }, [
+    header: resizableHeader('Torrent'),
+    size: defaultColumnSizing.name,
+    minSize: 180,
+    maxSize: 720,
+    meta: resizableColumnMeta,
+    cell: ({ row }) => h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
       h(UIcon, { name: statusIcon[row.original.status], class: 'size-4 shrink-0 text-muted' }),
       h('div', { class: 'min-w-0' }, [
         h('p', { class: 'truncate font-medium text-highlighted' }, row.original.name),
@@ -168,7 +341,11 @@ const columns: TableColumn<Torrent>[] = [
   },
   {
     accessorKey: 'progress',
-    header: 'Progress',
+    header: resizableHeader('Progress'),
+    size: defaultColumnSizing.progress,
+    minSize: 112,
+    maxSize: 260,
+    meta: resizableColumnMeta,
     cell: ({ row }) => h('div', { class: 'flex min-w-24 items-center gap-2' }, [
       h(UProgress, { modelValue: row.original.progress, size: 'xs', class: 'w-16' }),
       h('span', { class: 'w-10 text-right font-mono text-xs text-muted' }, `${row.original.progress}%`),
@@ -176,29 +353,67 @@ const columns: TableColumn<Torrent>[] = [
   },
   {
     accessorKey: 'status',
-    header: 'Status',
+    header: resizableHeader('Status'),
+    size: defaultColumnSizing.status,
+    minSize: 96,
+    maxSize: 220,
+    meta: resizableColumnMeta,
     cell: ({ row }) => h(UBadge, { color: statusColor[row.original.status], variant: 'subtle' }, () => statusLabel[row.original.status]),
   },
   {
     accessorKey: 'downSpeed',
-    header: 'Down',
+    header: resizableHeader('Down'),
+    size: defaultColumnSizing.downSpeed,
+    minSize: 88,
+    maxSize: 200,
+    meta: resizableColumnMeta,
     cell: ({ row }) => h('span', { class: 'font-mono text-xs tabular-nums' }, formatSpeed(row.original.downSpeed)),
   },
   {
     accessorKey: 'upSpeed',
-    header: 'Up',
+    header: resizableHeader('Up'),
+    size: defaultColumnSizing.upSpeed,
+    minSize: 88,
+    maxSize: 200,
+    meta: resizableColumnMeta,
     cell: ({ row }) => h('span', { class: 'font-mono text-xs tabular-nums' }, formatSpeed(row.original.upSpeed)),
   },
   {
     accessorKey: 'etaSeconds',
-    header: 'ETA',
+    header: resizableHeader('ETA'),
+    size: defaultColumnSizing.etaSeconds,
+    minSize: 80,
+    maxSize: 180,
+    meta: resizableColumnMeta,
     cell: ({ row }) => h('span', { class: 'font-mono text-xs text-muted' }, formatEta(row.original.etaSeconds, row.original.status)),
+  },
+  {
+    id: 'layoutSpacer',
+    header: () => null,
+    cell: () => null,
+    enableResizing: false,
+    meta: {
+      class: {
+        th: 'p-0',
+        td: 'p-0',
+      },
+    },
   },
 ]
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
+  try {
+    const savedSizing = JSON.parse(localStorage.getItem(columnSizingStorageKey) || '{}') as Record<string, unknown>
+    const validSizing = Object.fromEntries(Object.entries(savedSizing).filter(([column, size]) => (
+      column in defaultColumnSizing && typeof size === 'number' && Number.isFinite(size)
+    ))) as Record<string, number>
+    columnSizing.value = { ...defaultColumnSizing, ...validSizing }
+  } catch {
+    localStorage.removeItem(columnSizingStorageKey)
+  }
+
   void restoreSavedConnection()
   refreshTimer = setInterval(() => {
     if (connectionStatus.value === 'connected') void refresh()
@@ -206,8 +421,11 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cancelActiveColumnResize?.()
   if (refreshTimer) clearInterval(refreshTimer)
 })
+
+watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.stringify(sizing)), { deep: true })
 </script>
 
 <template>
@@ -290,7 +508,17 @@ onBeforeUnmount(() => {
           <UButton label="Reconnect" icon="i-lucide-refresh-cw" color="warning" variant="soft" size="sm" :loading="refreshing" @click="retryConnection" />
         </div>
 
-        <UTable v-if="visibleTorrents.length" :data="visibleTorrents" :columns="columns" class="min-h-0 flex-1" />
+        <UTable
+          v-if="visibleTorrents.length"
+          v-model:column-sizing="columnSizing"
+          :data="visibleTorrents"
+          :columns="columns"
+          :column-sizing-options="{ columnResizeMode: 'onEnd' }"
+          :virtualize="{ estimateSize: 65, overscan: 8 }"
+          :style="{ '--torrent-table-width': `${tableWidth}px` }"
+          :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
+          class="torrent-table min-h-0 flex-1"
+        />
 
         <div v-else class="grid min-h-64 flex-1 place-items-center text-center">
           <div v-if="!torrents.length && connectionStatus === 'disconnected'" class="max-w-md">
@@ -383,3 +611,36 @@ onBeforeUnmount(() => {
     </template>
   </UModal>
 </template>
+
+<style>
+.torrent-table table {
+  width: 100%;
+  min-width: var(--torrent-table-width);
+  table-layout: fixed;
+}
+
+.torrent-table .column-resize-highlight {
+  --column-resize-highlight-width: 100%;
+  --column-resize-highlight-opacity: 0;
+
+  position: relative;
+}
+
+.torrent-table .column-resize-highlight::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--column-resize-highlight-width);
+  pointer-events: none;
+  content: '';
+  opacity: var(--column-resize-highlight-opacity);
+  transition: opacity 150ms ease;
+}
+
+.torrent-table .column-resize-highlight-header::before {
+  background: color-mix(in oklab, var(--ui-primary) 10%, transparent);
+}
+
+.torrent-table .column-resize-highlight-cell::before {
+  background: color-mix(in oklab, var(--ui-primary) 5%, transparent);
+}
+</style>
