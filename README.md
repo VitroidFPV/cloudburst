@@ -30,13 +30,16 @@ The desktop build runs `pnpm generate` before packaging the generated client app
 Useful checks:
 
 ```sh
+pnpm lint
+pnpm test
 pnpm typecheck
 pnpm generate
 ```
 
 ## Current structure
 
-- `app/components/TorrentDashboard.vue` owns the selected application layout.
+- `app/components/TorrentDashboard.vue` owns the application layout and connection orchestration.
+- `app/components/TorrentTable.vue` owns torrent columns, sorting, resizing, and persisted table preferences.
 - `app/composables/useTorrentLibrary.ts` is the typed frontend seam for connection and torrent state.
 - `src-tauri/src/qbittorrent.rs` owns qBittorrent authentication, compatibility checks, and read-only API access.
 - `src-tauri/` contains the desktop application shell and its permissions.
