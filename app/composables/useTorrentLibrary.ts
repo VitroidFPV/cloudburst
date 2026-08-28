@@ -172,6 +172,31 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
+  const removeTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
+    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      const snapshot = await adapter.removeTorrents(uniqueTorrentIds, deleteFiles)
+      if (!isCurrentOperation(operation)) return false
+
+      applySnapshot(snapshot)
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
   const disconnect = async () => {
     const operation = beginOperation()
 
@@ -268,6 +293,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     restoreSavedConnection,
     refresh,
     setTorrentsPaused,
+    removeTorrents,
     retry,
     startAutoRefresh,
     disconnect,

@@ -12,6 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'set-paused': [torrentIds: string[], paused: boolean]
+  'remove-torrents': [torrentIds: string[], deleteFiles: boolean]
 }>()
 
 const UBadge = resolveComponent('UBadge')
@@ -80,6 +81,15 @@ const emitSelectedActivity = (paused: boolean) => {
   emit('set-paused', selectedTorrents.value.map(torrent => torrent.id), paused)
 }
 
+const removeOpen = ref(false)
+const removeTitle = computed(() => `Remove ${selectedCount.value === 1 ? 'torrent' : `${selectedCount.value} torrents`}`)
+
+const confirmRemoval = (deleteFiles: boolean) => {
+  if (!selectedCount.value || activityActionsDisabled.value) return
+  removeOpen.value = false
+  emit('remove-torrents', selectedTorrents.value.map(torrent => torrent.id), deleteFiles)
+}
+
 const contextMenuItems = computed<ContextMenuItem[][]>(() => [[
   {
     label: 'Start',
@@ -92,6 +102,15 @@ const contextMenuItems = computed<ContextMenuItem[][]>(() => [[
     icon: 'i-lucide-square',
     disabled: activityActionsDisabled.value || !canStopSelected.value,
     onSelect: () => emitSelectedActivity(true),
+  },
+], [
+  {
+    label: 'Remove…',
+    icon: 'i-lucide-trash-2',
+    disabled: activityActionsDisabled.value,
+    onSelect: () => {
+      removeOpen.value = true
+    },
   },
 ]])
 
@@ -588,6 +607,17 @@ watch(() => props.torrents, (torrents) => {
           :loading="actionPending"
           @click="emitSelectedActivity(true)"
         />
+        <UButton
+          label="Remove"
+          icon="i-lucide-trash-2"
+          color="error"
+          variant="ghost"
+          size="sm"
+          aria-label="Remove selected torrents"
+          :disabled="activityActionsDisabled"
+          :loading="actionPending"
+          @click="removeOpen = true"
+        />
       </div>
       <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
         <UButton
@@ -630,6 +660,28 @@ watch(() => props.torrents, (torrents) => {
   <div v-else class="grid min-h-64 flex-1 place-items-center text-center">
     <slot name="empty" />
   </div>
+
+  <UModal v-model:open="removeOpen" :title="removeTitle" description="The selected torrents stop being managed.">
+    <template #body>
+      <p class="text-sm text-muted">
+        Choose <span class="text-highlighted">Remove</span> to keep downloaded content on disk, or
+        <span class="text-highlighted">Remove and files</span> to delete it.
+      </p>
+    </template>
+
+    <template #footer>
+      <div class="flex w-full items-center justify-between gap-3">
+        <p class="text-xs text-muted">
+          Removing cannot be undone.
+        </p>
+        <div class="flex gap-2">
+          <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
+          <UButton type="button" label="Remove" color="error" variant="soft" @click="confirmRemoval(false)" />
+          <UButton type="button" label="Remove and files" color="error" variant="solid" @click="confirmRemoval(true)" />
+        </div>
+      </div>
+    </template>
+  </UModal>
 </template>
 
 <style>

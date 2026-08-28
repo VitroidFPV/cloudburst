@@ -77,6 +77,36 @@ describe('TorrentTable', () => {
     expect(menu?.textContent).not.toContain('Debian ISO')
   })
 
+  it('confirms before removing selected torrents', async () => {
+    const wrapper = await mountSuspended(TorrentTable, { props: { torrents: [torrent] } })
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+
+    await wrapper.get('[aria-label="Remove selected torrents"]').trigger('click')
+    await flushPromises()
+    const modal = document.body
+
+    expect(modal.textContent).toContain('Remove torrent')
+    expect(wrapper.emitted('remove-torrents')).toBeUndefined()
+
+    const removeButtons = Array.from(modal.querySelectorAll('button'))
+      .filter(button => ['Remove', 'Remove and files'].includes(button.textContent?.trim() || ''))
+
+    await removeButtons.find(button => button.textContent?.trim() === 'Remove')!.click()
+    await flushPromises()
+    expect(wrapper.emitted('remove-torrents')).toEqual([[['torrent-1'], false]])
+
+    await wrapper.get('[aria-label="Remove selected torrents"]').trigger('click')
+    await flushPromises()
+    await Array.from(document.body.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === 'Remove and files')!.click()
+    await flushPromises()
+
+    expect(wrapper.emitted('remove-torrents')).toEqual([
+      [['torrent-1'], false],
+      [['torrent-1'], true],
+    ])
+  })
+
   it('selects and deselects every row atomically from the header checkbox', async () => {
     const torrents = Array.from({ length: 3 }, (_, index) => ({
       ...torrent,

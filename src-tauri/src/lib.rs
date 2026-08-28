@@ -13,6 +13,7 @@ pub fn run() {
             qbittorrent::restore_saved_qbittorrent,
             qbittorrent::refresh_qbittorrent,
             qbittorrent::set_torrents_paused,
+            qbittorrent::remove_torrents,
             qbittorrent::disconnect_qbittorrent
         ])
         .run(tauri::generate_context!())

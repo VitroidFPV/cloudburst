@@ -49,6 +49,7 @@ const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): Qbittorrent
   restore: unexpected,
   refresh: unexpected,
   setTorrentPaused: unexpected,
+  removeTorrents: unexpected,
   disconnect: async () => {},
   ...overrides,
 })
@@ -140,6 +141,39 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(await library.setTorrentsPaused(['torrent-1'], true)).toBe(false)
     expect(library.connectionStatus.value).toBe('connected')
     expect(library.stale.value).toBe(false)
+    expect(library.torrents.value).toEqual([torrent])
+    expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
+  })
+
+  it('removes selected torrents and adopts the authoritative response', async () => {
+    const emptiedSnapshot = { ...snapshot, torrents: [] }
+    const removeTorrents = vi.fn().mockResolvedValue(emptiedSnapshot)
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      removeTorrents,
+    }))
+
+    await library.connect(connectionInput)
+
+    expect(await library.removeTorrents(['torrent-1', ' torrent-1 '], true)).toBe(true)
+    expect(removeTorrents).toHaveBeenCalledWith(['torrent-1'], true)
+    expect(library.torrents.value).toEqual([])
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('keeps removed torrents visible when removal fails', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      removeTorrents: async () => {
+        throw new Error('qBittorrent rejected the request')
+      },
+    }))
+
+    await library.connect(connectionInput)
+
+    expect(await library.removeTorrents(['torrent-1'], false)).toBe(false)
+    expect(library.connectionStatus.value).toBe('connected')
     expect(library.torrents.value).toEqual([torrent])
     expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
   })

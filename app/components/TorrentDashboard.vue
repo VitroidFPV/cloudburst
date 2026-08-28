@@ -27,6 +27,7 @@ const {
   retry,
   startAutoRefresh,
   setTorrentsPaused,
+  removeTorrents,
   disconnect,
   chooseFilter,
   chooseCategory,
@@ -166,6 +167,28 @@ const updateTorrentActivity = async (torrentIds: string[], paused: boolean) => {
   })
 }
 
+const removeSelectedTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
+  const successful = await removeTorrents(torrentIds, deleteFiles)
+  const noun = torrentIds.length === 1 ? 'Torrent' : 'Torrents'
+
+  if (successful) {
+    toast.add({
+      title: `${noun} removed`,
+      description: deleteFiles
+        ? `${torrentIds.length} torrent${torrentIds.length === 1 ? '' : 's'} removed and the downloaded files were deleted.`
+        : `${torrentIds.length} torrent${torrentIds.length === 1 ? '' : 's'} removed. The downloaded content was kept.`,
+      color: 'success',
+    })
+    return
+  }
+
+  toast.add({
+    title: `Could not remove ${noun.toLowerCase()}`,
+    description: torrentActionError.value || 'Torrents cannot be removed while qBittorrent is disconnected.',
+    color: 'error',
+  })
+}
+
 let stopAutoRefresh: (() => void) | undefined
 
 onMounted(() => {
@@ -224,6 +247,7 @@ onBeforeUnmount(() => {
           :actions-disabled="torrentActionsDisabled"
           :action-pending="activityUpdating"
           @set-paused="updateTorrentActivity"
+          @remove-torrents="removeSelectedTorrents"
         >
           <template #actions>
             <UButton

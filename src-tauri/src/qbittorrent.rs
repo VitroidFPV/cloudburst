@@ -235,6 +235,30 @@ pub async fn set_torrents_paused(
 }
 
 #[tauri::command]
+pub async fn remove_torrents(
+    torrent_ids: Vec<String>,
+    delete_files: bool,
+    manager: State<'_, ConnectionManager>,
+) -> Result<ConnectionSnapshot, String> {
+    let torrent_ids = unique_torrent_ids(torrent_ids);
+    if torrent_ids.is_empty() {
+        return Err("Select at least one torrent.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .remove(&torrent_ids, delete_files)
+        .await
+        .map_err(|error| error.to_string())?;
+    active.snapshot().await.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn disconnect_qbittorrent(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
@@ -426,6 +450,19 @@ impl QbittorrentClient {
         };
         let form = [("hashes", torrent_ids.join("|"))];
         self.post_form(path, &form).await?;
+        Ok(())
+    }
+
+    async fn remove(
+        &self,
+        torrent_ids: &[String],
+        delete_files: bool,
+    ) -> Result<(), ConnectionError> {
+        let form = [
+            ("hashes", torrent_ids.join("|")),
+            ("deleteFiles", delete_files.to_string()),
+        ];
+        self.post_form("api/v2/torrents/delete", &form).await?;
         Ok(())
     }
 
@@ -814,6 +851,37 @@ mod tests {
         assert!(requests
             .iter()
             .all(|request| request.contains("hashes=abc123%7Cdef456")));
+        assert!(requests
+            .iter()
+            .all(|request| request
+                .contains("authorization: Bearer qbt_0000000000000000000000000000")));
+    }
+
+    #[test]
+    fn removes_selected_torrents_with_and_without_files() {
+        let (endpoint, requests, server) = serve_responses(vec!["Ok.", "Ok."]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+        let torrent_ids = vec!["abc123".to_string(), "def456".to_string()];
+
+        tauri::async_runtime::block_on(async {
+            client.remove(&torrent_ids, false).await.unwrap();
+            client.remove(&torrent_ids, true).await.unwrap();
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests[0].starts_with("POST /api/v2/torrents/delete "));
+        assert!(requests[0].contains("hashes=abc123%7Cdef456"));
+        assert!(requests[0].contains("deleteFiles=false"));
+        assert!(requests[1].starts_with("POST /api/v2/torrents/delete "));
+        assert!(requests[1].contains("deleteFiles=true"));
         assert!(requests
             .iter()
             .all(|request| request

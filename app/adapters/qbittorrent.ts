@@ -6,6 +6,7 @@ export interface QbittorrentAdapter {
   restore: () => Promise<RestoreOutcome>
   refresh: () => Promise<ConnectionSnapshot>
   setTorrentPaused: (torrentIds: string[], paused: boolean) => Promise<ConnectionSnapshot>
+  removeTorrents: (torrentIds: string[], deleteFiles: boolean) => Promise<ConnectionSnapshot>
   disconnect: () => Promise<void>
 }
 
@@ -14,5 +15,6 @@ export const tauriQbittorrentAdapter: QbittorrentAdapter = {
   restore: () => invoke<RestoreOutcome>('restore_saved_qbittorrent'),
   refresh: () => invoke<ConnectionSnapshot>('refresh_qbittorrent'),
   setTorrentPaused: (torrentIds, paused) => invoke<ConnectionSnapshot>('set_torrents_paused', { torrentIds, paused }),
+  removeTorrents: (torrentIds, deleteFiles) => invoke<ConnectionSnapshot>('remove_torrents', { torrentIds, deleteFiles }),
   disconnect: () => invoke('disconnect_qbittorrent'),
 }

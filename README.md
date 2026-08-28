@@ -1,6 +1,6 @@
 # Cloudburst
 
-Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains a Nuxt interface and a Tauri 2 desktop shell with persistent tray behavior and a read-only qBittorrent Web API connection.
+Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains a Nuxt interface and a Tauri 2 desktop shell with persistent tray behavior and a read/write qBittorrent Web API connection.
 
 ## Development
 
@@ -39,13 +39,13 @@ pnpm generate
 ## Current structure
 
 - `app/components/TorrentDashboard.vue` owns the application layout and connection orchestration.
-- `app/components/TorrentTable.vue` owns torrent selection, the row context menu, torrent activity controls, columns, sorting, resizing, and persisted table preferences.
+- `app/components/TorrentTable.vue` owns torrent selection, the row context menu, torrent activity and removal controls, columns, sorting, resizing, and persisted table preferences.
 - `app/composables/useTorrentLibrary.ts` is the typed frontend seam for connection and torrent state.
-- `src-tauri/src/qbittorrent.rs` owns qBittorrent authentication, compatibility checks, and read-only API access.
+- `src-tauri/src/qbittorrent.rs` owns qBittorrent authentication, compatibility checks, and Web API access.
 - `src-tauri/` contains the desktop application shell and its permissions.
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-Cloudburst saves one active connection profile and restores it when the desktop application starts. API keys and passwords are kept in Windows Credential Manager or the Linux Secret Service; the profile file contains only the WebUI URL, authentication mode, and optional username. Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer, can start and stop selected torrents from the table toolbar or row context menu, and retains the last known torrents as stale while reconnecting with capped backoff if the active connection is lost. Multiple profiles and process-based connection resolution are not implemented yet.
+Cloudburst saves one active connection profile and restores it when the desktop application starts. API keys and passwords are kept in Windows Credential Manager or the Linux Secret Service; the profile file contains only the WebUI URL, authentication mode, and optional username. Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer, can start, stop, and remove selected torrents from the table toolbar or row context menu — removing a torrent confirms first and keeps the downloaded content unless "Remove and files" is chosen — and retains the last known torrents as stale while reconnecting with capped backoff if the active connection is lost. Multiple profiles and process-based connection resolution are not implemented yet.
 
 Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.
