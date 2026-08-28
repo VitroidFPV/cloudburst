@@ -1,6 +1,6 @@
 # Cloudburst
 
-Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains the Nuxt application scaffold, an in-memory torrent module, and a Tauri 2 desktop shell with persistent tray behavior. It does not connect to qBittorrent yet.
+Cloudburst is a focused interface for managing a qBittorrent 5.2+ instance. The repository currently contains a Nuxt interface and a Tauri 2 desktop shell with persistent tray behavior and a read-only qBittorrent Web API connection.
 
 ## Development
 
@@ -9,7 +9,7 @@ pnpm install
 pnpm dev
 ```
 
-The application runs at `http://localhost:3000`.
+The application runs at `http://localhost:3000`. The browser build can render the interface, but connecting to qBittorrent requires the desktop shell.
 
 ## Desktop development
 
@@ -37,10 +37,12 @@ pnpm generate
 ## Current structure
 
 - `app/components/TorrentDashboard.vue` owns the selected application layout.
-- `app/composables/useTorrentLibrary.ts` is the module seam for torrent state and actions.
-- `app/data/placeholder-torrents.ts` supplies temporary in-memory data.
-- `src-tauri/` contains the minimal desktop application shell and its permissions.
+- `app/composables/useTorrentLibrary.ts` is the typed frontend seam for connection and torrent state.
+- `src-tauri/src/qbittorrent.rs` owns qBittorrent authentication, compatibility checks, and read-only API access.
+- `src-tauri/` contains the desktop application shell and its permissions.
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-The placeholder module is intentionally local and non-persistent. Its implementation can later be replaced with qBittorrent integration without changing the page layout. Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process. The Tauri shell currently exposes no Cloudburst commands or qBittorrent functionality.
+Cloudburst currently supports in-memory connections using either a qBittorrent API key or WebUI username and password. It requires qBittorrent 5.2 or newer, refreshes the torrent list without exposing mutation commands, and retains the last known torrents as stale if the active connection is lost. Connection-profile persistence and protected credential storage are not implemented yet.
+
+Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.

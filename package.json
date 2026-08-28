@@ -16,6 +16,7 @@
   "dependencies": {
     "@iconify-json/lucide": "^1.2.126",
     "@nuxt/ui": "^4.11.0",
+    "@tauri-apps/api": "^2.11.1",
     "nuxt": "^4.5.2"
   },
   "devDependencies": {

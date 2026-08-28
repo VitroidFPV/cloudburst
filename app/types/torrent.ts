@@ -2,7 +2,9 @@ export type TorrentStatus = 'downloading' | 'seeding' | 'paused' | 'checking' | 
 
 export type TorrentFilterId = 'all' | 'downloading' | 'seeding' | 'paused' | 'attention'
 
-export type TorrentAction = 'resume' | 'pause' | 'remove'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
+
+export type AuthenticationMode = 'apiKey' | 'credentials'
 
 export interface Torrent {
   id: string
@@ -13,14 +15,27 @@ export interface Torrent {
   downloaded: number
   downSpeed: number
   upSpeed: number
-  eta: string
+  etaSeconds: number | null
   ratio: number
   seeds: number
   peers: number
   category: string
   tags: string[]
-  added: string
+  addedOn: number
   savePath: string
+}
+
+export interface ConnectionInput {
+  endpoint: string
+  apiKey?: string
+  username?: string
+  password?: string
+}
+
+export interface ConnectionSnapshot {
+  endpoint: string
+  version: string
+  torrents: Torrent[]
 }
 
 export interface TorrentFilter {
@@ -28,9 +43,4 @@ export interface TorrentFilter {
   label: string
   icon: string
   count: number
-}
-
-export interface ActionFeedback {
-  title: string
-  description: string
 }

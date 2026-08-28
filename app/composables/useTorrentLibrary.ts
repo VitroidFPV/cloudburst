@@ -1,16 +1,18 @@
-import { placeholderTorrents } from '~/data/placeholder-torrents'
-import type { ActionFeedback, Torrent, TorrentAction, TorrentFilter, TorrentFilterId } from '~/types/torrent'
+import { invoke } from '@tauri-apps/api/core'
+import type { ConnectionInput, ConnectionSnapshot, ConnectionStatus, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
 
-const clonePlaceholderTorrents = () => placeholderTorrents.map(torrent => ({
-  ...torrent,
-  tags: [...torrent.tags],
-}))
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
 export const useTorrentLibrary = () => {
-  const torrents = ref<Torrent[]>(clonePlaceholderTorrents())
-  const selectedIds = ref<string[]>(['atlas-linux'])
-  const activeFilter = ref<TorrentFilterId>('all')
-  const activeCategory = ref('')
+  const torrents = useState<Torrent[]>('torrent-library', () => [])
+  const activeFilter = useState<TorrentFilterId>('torrent-filter', () => 'all')
+  const activeCategory = useState('torrent-category', () => '')
+  const connectionStatus = useState<ConnectionStatus>('connection-status', () => 'disconnected')
+  const connectionError = useState('connection-error', () => '')
+  const connectionEndpoint = useState('connection-endpoint', () => '')
+  const connectionVersion = useState('connection-version', () => '')
+  const stale = useState('connection-stale', () => false)
+  const refreshing = useState('connection-refreshing', () => false)
 
   const filters = computed<TorrentFilter[]>(() => [
     { id: 'all', label: 'All torrents', icon: 'i-lucide-list-filter', count: torrents.value.length },
@@ -20,7 +22,7 @@ export const useTorrentLibrary = () => {
     { id: 'attention', label: 'Needs attention', icon: 'i-lucide-triangle-alert', count: torrents.value.filter(torrent => ['stalled', 'error'].includes(torrent.status)).length },
   ])
 
-  const categories = computed(() => [...new Set(torrents.value.map(torrent => torrent.category))].sort())
+  const categories = computed(() => [...new Set(torrents.value.map(torrent => torrent.category).filter(Boolean))].sort())
 
   const visibleTorrents = computed(() => torrents.value.filter((torrent) => {
     const matchesCategory = !activeCategory.value || torrent.category === activeCategory.value
@@ -31,12 +33,63 @@ export const useTorrentLibrary = () => {
     return matchesCategory && matchesFilter
   }))
 
-  const selectedTorrents = computed(() => torrents.value.filter(torrent => selectedIds.value.includes(torrent.id)))
-
   const transferTotals = computed(() => torrents.value.reduce((totals, torrent) => ({
     down: totals.down + torrent.downSpeed,
     up: totals.up + torrent.upSpeed,
   }), { down: 0, up: 0 }))
+
+  const applySnapshot = (snapshot: ConnectionSnapshot) => {
+    torrents.value = snapshot.torrents
+    connectionEndpoint.value = snapshot.endpoint
+    connectionVersion.value = snapshot.version
+    connectionStatus.value = 'connected'
+    connectionError.value = ''
+    stale.value = false
+  }
+
+  const connect = async (input: ConnectionInput) => {
+    connectionStatus.value = 'connecting'
+    connectionError.value = ''
+
+    try {
+      const snapshot = await invoke<ConnectionSnapshot>('connect_qbittorrent', { input })
+      applySnapshot(snapshot)
+      return true
+    } catch (error) {
+      connectionStatus.value = 'disconnected'
+      connectionError.value = errorMessage(error)
+      stale.value = torrents.value.length > 0
+      return false
+    }
+  }
+
+  const refresh = async () => {
+    if (refreshing.value || connectionStatus.value === 'connecting') return false
+    refreshing.value = true
+
+    try {
+      const snapshot = await invoke<ConnectionSnapshot>('refresh_qbittorrent')
+      applySnapshot(snapshot)
+      return true
+    } catch (error) {
+      connectionStatus.value = 'disconnected'
+      connectionError.value = errorMessage(error)
+      stale.value = torrents.value.length > 0
+      return false
+    } finally {
+      refreshing.value = false
+    }
+  }
+
+  const disconnect = async () => {
+    await invoke('disconnect_qbittorrent')
+    torrents.value = []
+    connectionStatus.value = 'disconnected'
+    connectionError.value = ''
+    connectionEndpoint.value = ''
+    connectionVersion.value = ''
+    stale.value = false
+  }
 
   const chooseFilter = (filter: TorrentFilterId) => {
     activeFilter.value = filter
@@ -48,65 +101,24 @@ export const useTorrentLibrary = () => {
     activeFilter.value = 'all'
   }
 
-  const toggleSelection = (id: string) => {
-    selectedIds.value = selectedIds.value.includes(id)
-      ? selectedIds.value.filter(selectedId => selectedId !== id)
-      : [...selectedIds.value, id]
-  }
-
-  const toggleAllVisible = () => {
-    const visibleIds = visibleTorrents.value.map(torrent => torrent.id)
-    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.value.includes(id))
-
-    selectedIds.value = allVisibleSelected
-      ? selectedIds.value.filter(id => !visibleIds.includes(id))
-      : [...new Set([...selectedIds.value, ...visibleIds])]
-  }
-
-  const execute = (action: TorrentAction, ids = selectedIds.value): ActionFeedback => {
-    const targetIds = new Set(ids)
-    const count = targetIds.size
-
-    if (count === 0) {
-      return { title: 'Nothing selected', description: 'Select at least one torrent first.' }
-    }
-
-    if (action === 'remove') {
-      torrents.value = torrents.value.filter(torrent => !targetIds.has(torrent.id))
-      selectedIds.value = selectedIds.value.filter(id => !targetIds.has(id))
-      return { title: 'Torrent removed', description: `${count} placeholder torrent${count === 1 ? '' : 's'} removed.` }
-    }
-
-    torrents.value = torrents.value.map((torrent) => {
-      if (!targetIds.has(torrent.id)) return torrent
-
-      if (action === 'pause') {
-        return { ...torrent, status: 'paused', downSpeed: 0, upSpeed: 0, eta: 'Paused' }
-      }
-
-      return { ...torrent, status: torrent.progress === 100 ? 'seeding' : 'downloading', eta: torrent.progress === 100 ? '∞' : '—' }
-    })
-
-    return {
-      title: action === 'pause' ? 'Torrent paused' : 'Torrent resumed',
-      description: `${count} placeholder torrent${count === 1 ? '' : 's'} updated.`,
-    }
-  }
-
   return {
     torrents,
     visibleTorrents,
-    selectedIds,
-    selectedTorrents,
     filters,
     categories,
     activeFilter,
     activeCategory,
     transferTotals,
+    connectionStatus,
+    connectionError,
+    connectionEndpoint,
+    connectionVersion,
+    stale,
+    refreshing,
+    connect,
+    refresh,
+    disconnect,
     chooseFilter,
     chooseCategory,
-    toggleSelection,
-    toggleAllVisible,
-    execute,
   }
 }
