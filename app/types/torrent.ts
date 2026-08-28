@@ -51,6 +51,30 @@ export interface RestoreOutcome {
   error: string | null
 }
 
+export type AddContentLayout = 'original' | 'subfolder' | 'noSubfolder'
+
+export interface AddTorrentFile {
+  name: string
+  base64Content: string
+}
+
+export interface AddTorrentsInput {
+  urls: string[]
+  files: AddTorrentFile[]
+  category?: string
+  savePath?: string
+  contentLayout: AddContentLayout
+}
+
+export interface AddTorrentsOutcome {
+  successCount: number
+  failureCount: number
+  pendingCount: number
+  addedTorrentIds: string[]
+}
+
+export type MagnetHandlerStatus = 'cloudburstDefault' | 'otherProgram' | 'notRegistered'
+
 export interface TorrentFilter {
   id: TorrentFilterId
   label: string

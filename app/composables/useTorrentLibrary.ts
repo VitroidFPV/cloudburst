@@ -1,4 +1,4 @@
-import type { ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
+import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId } from '~/types/torrent'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
@@ -21,6 +21,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const activityUpdating = useState('torrent-activity-updating', () => false)
   const torrentActionError = useState('torrent-action-error', () => '')
   const operationGeneration = useState('connection-operation-generation', () => 0)
+  const defaultSavePath = useState('default-save-path', () => '')
 
   if (adapter === tauriQbittorrentAdapter && isUiDebugActive()) torrents.value = uiDebugTorrents
 
@@ -197,6 +198,45 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
+  const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsOutcome | null> => {
+    const hasSources = input.urls.some(url => url.trim()) || input.files.length > 0
+    if (!hasSources || connectionStatus.value !== 'connected' || stale.value) return null
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      const outcome = await adapter.addTorrents(input)
+      if (!isCurrentOperation(operation)) return null
+
+      // The add endpoint reports counts instead of a snapshot; adopt the
+      // authoritative list once the instance has processed the request.
+      const snapshot = await adapter.refresh()
+      if (isCurrentOperation(operation)) applySnapshot(snapshot)
+      return outcome
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return null
+      torrentActionError.value = errorMessage(error)
+      return null
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
+  const loadDefaultSavePath = async () => {
+    if (defaultSavePath.value || connectionStatus.value !== 'connected' || stale.value) return
+
+    try {
+      defaultSavePath.value = await adapter.defaultSavePath()
+    }
+    catch {
+      defaultSavePath.value = ''
+    }
+  }
+
   const disconnect = async () => {
     const operation = beginOperation()
 
@@ -212,6 +252,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
       savedProfile.value = null
       stale.value = false
       torrentActionError.value = ''
+      defaultSavePath.value = ''
       return true
     }
     catch (error) {
@@ -294,6 +335,9 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     refresh,
     setTorrentsPaused,
     removeTorrents,
+    addTorrents,
+    loadDefaultSavePath,
+    defaultSavePath,
     retry,
     startAutoRefresh,
     disconnect,

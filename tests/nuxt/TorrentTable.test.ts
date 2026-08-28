@@ -123,4 +123,15 @@ describe('TorrentTable', () => {
     expect(wrapper.text()).not.toContain('selected')
   })
 
+  it('selects torrents handed over by an external action', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], autoSelectIds: [] },
+    })
+    expect(wrapper.text()).not.toContain('1 selected')
+
+    await wrapper.setProps({ autoSelectIds: ['torrent-1'] })
+
+    expect(wrapper.text()).toContain('1 selected')
+  })
+
 })

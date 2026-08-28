@@ -39,3 +39,7 @@ _Avoid_: Delete torrent
 **Remove torrent and files**:
 Stop managing a torrent and delete its downloaded content.
 _Avoid_: Delete, remove data
+
+**Add torrent**:
+Start managing one or more torrents by submitting magnet links, URLs, or .torrent files to the active qBittorrent instance.
+_Avoid_: Import, upload, create torrent

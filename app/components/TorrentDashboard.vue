@@ -1,8 +1,15 @@
 <script setup lang="ts">
+import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AuthenticationMode, ConnectionInput } from '~/types/torrent'
+import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, MagnetHandlerStatus } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
+import { isLoopbackEndpoint } from '~/utils/connection'
 import { formatSpeed } from '~/utils/torrent-format'
+
+interface AddTorrentModalApi {
+  openWith: (options?: { urls?: string[], files?: File[] }) => void
+  close: () => void
+}
 
 const toast = useToast()
 const {
@@ -22,16 +29,24 @@ const {
   refreshing,
   activityUpdating,
   torrentActionError,
+  defaultSavePath,
   connect,
   restoreSavedConnection,
   retry,
   startAutoRefresh,
   setTorrentsPaused,
   removeTorrents,
+  addTorrents,
+  loadDefaultSavePath,
   disconnect,
   chooseFilter,
   chooseCategory,
 } = useTorrentLibrary()
+
+const addModal = useTemplateRef<AddTorrentModalApi>('addModal')
+const autoSelectIds = ref<string[]>([])
+const dropActive = ref(false)
+let dragDepth = 0
 
 const settingsOpen = ref(false)
 const authenticationMode = ref<AuthenticationMode>('apiKey')
@@ -80,6 +95,12 @@ const connectionDotClass = computed(() => {
 })
 
 const torrentActionsDisabled = computed(() => connectionStatus.value !== 'connected' || stale.value)
+
+const canBrowseFolders = computed(() => typeof window !== 'undefined'
+  && '__TAURI_INTERNALS__' in window
+  && connectionStatus.value === 'connected'
+  && !stale.value
+  && isLoopbackEndpoint(connectionEndpoint.value))
 
 const canReuseSavedCredential = computed(() => {
   if (!savedProfile.value) return false
@@ -189,11 +210,152 @@ const removeSelectedTorrents = async (torrentIds: string[], deleteFiles: boolean
   })
 }
 
+const openAddModal = () => {
+  void loadDefaultSavePath()
+  addModal.value?.openWith()
+}
+
+const addTorrentsFromModal = async (input: AddTorrentsInput) => {
+  const outcome = await addTorrents(input)
+
+  if (!outcome) {
+    toast.add({
+      title: 'Could not add torrents',
+      description: torrentActionError.value || 'Torrents cannot be added while qBittorrent is disconnected.',
+      color: 'error',
+    })
+    return
+  }
+
+  const { successCount, failureCount, pendingCount, addedTorrentIds } = outcome
+
+  if (!successCount && !pendingCount) {
+    toast.add({
+      title: 'qBittorrent added nothing',
+      description: 'Every source was rejected — usually duplicates or unreachable URLs.',
+      color: 'error',
+    })
+    return
+  }
+
+  addModal.value?.close()
+  if (addedTorrentIds.length) autoSelectIds.value = addedTorrentIds
+
+  if (successCount) {
+    toast.add({
+      title: successCount === 1 ? 'Torrent added' : `${successCount} torrents added`,
+      description: pendingCount
+        ? `${pendingCount} more ${pendingCount === 1 ? 'source is' : 'sources are'} still being fetched by qBittorrent.`
+        : undefined,
+      color: 'success',
+    })
+  }
+  else {
+    toast.add({
+      title: 'qBittorrent is fetching the torrent',
+      description: 'The library updates once the metadata arrives.',
+      color: 'info',
+    })
+  }
+
+  if (failureCount) {
+    toast.add({
+      title: failureCount === 1 ? 'One source was rejected' : `${failureCount} sources were rejected`,
+      description: 'Usually duplicates already in the library or unreachable URLs.',
+      color: 'warning',
+    })
+  }
+}
+
+const extractMagnets = (text: string) => text
+  .split(/\r?\n/)
+  .map(line => line.trim())
+  .filter(line => line.toLowerCase().startsWith('magnet:'))
+
+const onDragEnter = (event: DragEvent) => {
+  const types = Array.from(event.dataTransfer?.types ?? [])
+  if (!types.includes('Files') && !types.includes('text/uri-list')) return
+  dragDepth += 1
+  dropActive.value = true
+}
+
+const onDragLeave = () => {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dropActive.value = false
+}
+
+const onDrop = (event: DragEvent) => {
+  dragDepth = 0
+  dropActive.value = false
+
+  const torrentFiles = Array.from(event.dataTransfer?.files ?? [])
+    .filter(file => file.name.toLowerCase().endsWith('.torrent'))
+  const magnets = extractMagnets(event.dataTransfer?.getData('text/uri-list') ?? event.dataTransfer?.getData('text') ?? '')
+  if (!torrentFiles.length && !magnets.length) return
+
+  void loadDefaultSavePath()
+  addModal.value?.openWith({ urls: magnets, files: torrentFiles })
+}
+
+const acceptIncomingUrl = (url: string) => {
+  try {
+    if (new URL(url).protocol !== 'magnet:') return
+  }
+  catch {
+    return
+  }
+  void loadDefaultSavePath()
+  addModal.value?.openWith({ urls: [url] })
+}
+
+const listenForMagnetLinks = async () => {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+
+  try {
+    const { getCurrent, onOpenUrl } = await import('@tauri-apps/plugin-deep-link')
+    onOpenUrl(urls => urls?.forEach(acceptIncomingUrl))
+    const current = await getCurrent()
+    current?.forEach(acceptIncomingUrl)
+  }
+  catch {
+    // Deep links are unavailable before the OS registers the scheme.
+  }
+}
+
+const magnetHintOpen = ref(false)
+const magnetHintKind = ref<MagnetHandlerStatus>('otherProgram')
+
+const checkMagnetHandler = async () => {
+  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+  if (!navigator.userAgent.includes('Windows')) return
+
+  try {
+    const status = await invoke<MagnetHandlerStatus>('magnet_handler_status')
+    if (status === 'cloudburstDefault') return
+    magnetHintKind.value = status
+    magnetHintOpen.value = true
+  }
+  catch {
+    // Handler detection is best-effort; adding torrents works regardless.
+  }
+}
+
+const openMagnetSettings = () => {
+  magnetHintOpen.value = false
+  void invoke('open_default_apps_settings')
+}
+
+watch(connectionStatus, (status) => {
+  if (status === 'connected') void loadDefaultSavePath()
+})
+
 let stopAutoRefresh: (() => void) | undefined
 
 onMounted(() => {
   void restoreSavedConnection()
   stopAutoRefresh = startAutoRefresh()
+  void listenForMagnetLinks()
+  void checkMagnetHandler()
 })
 
 onBeforeUnmount(() => {
@@ -202,7 +364,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UDashboardGroup unit="rem" class="h-screen">
+  <div @dragover.prevent @dragenter.prevent="onDragEnter" @dragleave.prevent="onDragLeave" @drop.prevent="onDrop">
+    <UDashboardGroup unit="rem" class="h-screen">
     <UDashboardSidebar id="cloudburst-sidebar" class="bg-elevated/25">
       <template #header>
         <div class="flex items-center gap-2 px-1">
@@ -246,10 +409,22 @@ onBeforeUnmount(() => {
           :torrents="visibleTorrents"
           :actions-disabled="torrentActionsDisabled"
           :action-pending="activityUpdating"
+          :auto-select-ids="autoSelectIds"
           @set-paused="updateTorrentActivity"
           @remove-torrents="removeSelectedTorrents"
         >
           <template #actions>
+            <UButton
+              label="Add"
+              icon="i-lucide-plus"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              aria-label="Add torrents"
+              :disabled="torrentActionsDisabled"
+              :loading="activityUpdating"
+              @click="openAddModal"
+            />
             <UButton
               v-if="connectionEndpoint"
               icon="i-lucide-refresh-cw"
@@ -310,7 +485,54 @@ onBeforeUnmount(() => {
         </TorrentTable>
       </template>
     </UDashboardPanel>
-  </UDashboardGroup>
+    </UDashboardGroup>
+
+    <Transition name="fade">
+      <div v-if="dropActive" class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-primary/10 backdrop-blur-sm">
+        <div class="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-default/90 px-10 py-8">
+          <UIcon name="i-lucide-file-down" class="size-8 text-primary" />
+          <p class="font-medium text-highlighted">Drop torrents to add them</p>
+          <p class="text-sm text-muted">.torrent files or magnet links</p>
+        </div>
+      </div>
+    </Transition>
+
+    <AddTorrentModal
+      ref="addModal"
+      :categories="categories"
+      :default-save-path="defaultSavePath"
+      :can-browse="canBrowseFolders"
+      :pending="activityUpdating"
+      @add="addTorrentsFromModal"
+    />
+
+  <UModal
+    v-model:open="magnetHintOpen"
+    title="Cloudburst is not your magnet link handler"
+    description="Windows routes magnet links to the program chosen in the system's default apps."
+  >
+    <template #body>
+      <div class="space-y-3 text-sm text-muted">
+        <p>
+          Cloudburst registers itself automatically, but a default program chosen in Windows
+          Settings always takes precedence.
+        </p>
+        <ol class="list-decimal space-y-1 ps-5">
+          <li>Open Windows Settings → Apps → Default apps.</li>
+          <li>Search for “magnet”.</li>
+          <li>Choose <span class="text-highlighted">Cloudburst</span>.</li>
+        </ol>
+        <p>Magnet links clicked in your browser will then open the add dialog here.</p>
+      </div>
+    </template>
+
+    <template #footer>
+      <div class="flex w-full items-center justify-end gap-2">
+        <UButton type="button" label="Not now" color="neutral" variant="ghost" @click="magnetHintOpen = false" />
+        <UButton type="button" label="Open Settings" icon="i-lucide-settings" @click="openMagnetSettings" />
+      </div>
+    </template>
+  </UModal>
 
   <UModal v-model:open="settingsOpen" title="qBittorrent connection" description="Connect directly to the qBittorrent 5.2+ Web API.">
     <template #body>
@@ -375,4 +597,5 @@ onBeforeUnmount(() => {
       </div>
     </template>
   </UModal>
+  </div>
 </template>

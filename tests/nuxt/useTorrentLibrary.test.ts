@@ -2,7 +2,7 @@ import { clearNuxtState } from '#app'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { CONNECTION_POLL_INTERVAL_MS, CONNECTION_RETRY_DELAYS_MS, useTorrentLibrary } from '~/composables/useTorrentLibrary'
-import type { ConnectionInput, ConnectionProfile, ConnectionSnapshot, Torrent } from '~/types/torrent'
+import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, Torrent } from '~/types/torrent'
 
 const connectionInput: ConnectionInput = {
   endpoint: 'http://localhost:8080',
@@ -50,6 +50,8 @@ const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): Qbittorrent
   refresh: unexpected,
   setTorrentPaused: unexpected,
   removeTorrents: unexpected,
+  addTorrents: unexpected,
+  defaultSavePath: unexpected,
   disconnect: async () => {},
   ...overrides,
 })
@@ -176,6 +178,75 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.connectionStatus.value).toBe('connected')
     expect(library.torrents.value).toEqual([torrent])
     expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
+  })
+
+  it('adds torrents and adopts the refreshed library', async () => {
+    const outcome: AddTorrentsOutcome = { successCount: 1, failureCount: 0, pendingCount: 0, addedTorrentIds: ['new-1'] }
+    const addedTorrent: Torrent = { ...torrent, id: 'new-1', name: 'New ISO' }
+    const addTorrents = vi.fn().mockResolvedValue(outcome)
+    const refresh = vi.fn().mockResolvedValue({ ...snapshot, torrents: [addedTorrent] })
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      addTorrents,
+      refresh,
+    }))
+
+    await library.connect(connectionInput)
+
+    const input: AddTorrentsInput = { urls: ['magnet:?xt=urn:btih:abc'], files: [], contentLayout: 'original' }
+    expect(await library.addTorrents(input)).toEqual(outcome)
+    expect(addTorrents).toHaveBeenCalledWith(input)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(library.torrents.value).toEqual([addedTorrent])
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('keeps the library intact when adding fails', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      addTorrents: async () => {
+        throw new Error('qBittorrent rejected the request')
+      },
+    }))
+
+    await library.connect(connectionInput)
+
+    const input: AddTorrentsInput = { urls: ['magnet:?xt=urn:btih:abc'], files: [], contentLayout: 'original' }
+    expect(await library.addTorrents(input)).toBeNull()
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.torrents.value).toEqual([torrent])
+    expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('refuses to add without sources or a live connection', async () => {
+    const addTorrents = vi.fn(async (): Promise<AddTorrentsOutcome> => ({
+      successCount: 0,
+      failureCount: 0,
+      pendingCount: 0,
+      addedTorrentIds: [],
+    }))
+    const library = useTorrentLibrary(createAdapter({ addTorrents }))
+
+    expect(await library.addTorrents({ urls: [' magnet:?xt=urn:btih:abc '], files: [], contentLayout: 'original' })).toBeNull()
+    expect(await library.addTorrents({ urls: [' '], files: [], contentLayout: 'original' })).toBeNull()
+    expect(addTorrents).not.toHaveBeenCalled()
+  })
+
+  it('loads the default save path once per connection', async () => {
+    const defaultSavePath = vi.fn().mockResolvedValue('C:/Downloads')
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      defaultSavePath,
+    }))
+
+    await library.connect(connectionInput)
+    await library.loadDefaultSavePath()
+    await library.loadDefaultSavePath()
+
+    expect(defaultSavePath).toHaveBeenCalledTimes(1)
+    expect(library.defaultSavePath.value).toBe('C:/Downloads')
   })
 
   it('retries a saved profile with backoff and returns to normal polling after recovery', async () => {

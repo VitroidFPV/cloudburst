@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager, WebviewWindow, Window, WindowEvent,
+    App, AppHandle, Manager, Window, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -18,7 +18,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
-            SHOW_MENU_ID => show_main_window(app),
+            SHOW_MENU_ID => restore_window_main(app),
             QUIT_MENU_ID => app.exit(0),
             _ => {}
         })
@@ -31,7 +31,7 @@ pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 }
             ) {
-                show_main_window(tray.app_handle());
+                restore_window_main(tray.app_handle());
             }
         });
 
@@ -57,21 +57,22 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
     }
 }
 
-fn show_main_window(app: &AppHandle) {
+/// Shows and focuses the main window; used by the tray and the
+/// single-instance handler when a second instance is launched.
+pub fn restore_window_main(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         eprintln!("failed to show Cloudburst: the main window does not exist");
         return;
     };
 
-    if let Err(error) = restore_window(&window) {
-        eprintln!("failed to show Cloudburst from the system tray: {error}");
-    }
-}
-
-fn restore_window(window: &WebviewWindow) -> tauri::Result<()> {
     // Some Linux window managers do not support unminimizing, but a failed
     // attempt should not prevent a hidden window from being shown.
     let _ = window.unminimize();
-    window.show()?;
-    window.set_focus()
+    if let Err(error) = window.show() {
+        eprintln!("failed to show Cloudburst from the system tray: {error}");
+        return;
+    }
+    if let Err(error) = window.set_focus() {
+        eprintln!("failed to focus Cloudburst: {error}");
+    }
 }

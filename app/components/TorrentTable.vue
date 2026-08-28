@@ -8,6 +8,7 @@ const props = defineProps<{
   torrents: Torrent[]
   actionsDisabled?: boolean
   actionPending?: boolean
+  autoSelectIds?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -571,6 +572,11 @@ watch(() => props.torrents, (torrents) => {
   const visibleIds = new Set(torrents.map(torrent => torrent.id))
   rowSelection.value = Object.fromEntries(Object.entries(rowSelection.value).filter(([id]) => visibleIds.has(id)))
   if (selectionAnchorId.value && !visibleIds.has(selectionAnchorId.value)) selectionAnchorId.value = undefined
+})
+watch(() => props.autoSelectIds, (ids) => {
+  if (!ids?.length) return
+  rowSelection.value = Object.fromEntries(ids.map(id => [id, true]))
+  selectionAnchorId.value = ids[0]
 })
 </script>
 
