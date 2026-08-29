@@ -46,16 +46,24 @@ export const useAppearanceSetting = () => {
     const requestedMode = appearanceMode.value
 
     try {
-      const { Effect, getCurrentWindow } = await import('@tauri-apps/api/window')
+      const [{ Effect, getCurrentWindow }, { invoke }] = await Promise.all([
+        import('@tauri-apps/api/window'),
+        import('@tauri-apps/api/core'),
+      ])
       if (requestedMode !== appearanceMode.value) return
 
       const appWindow = getCurrentWindow()
       if (requestedMode === 'off') {
-        await appWindow.setBackgroundColor(getWindowBackgroundColor())
+        const backgroundColor = getWindowBackgroundColor()
+        await appWindow.setBackgroundColor(backgroundColor)
         if (requestedMode !== appearanceMode.value) return
         await appWindow.clearEffects()
+        if (requestedMode !== appearanceMode.value) return
+        await invoke('set_window_caption_color', { color: backgroundColor.slice(0, 3) })
       }
       else {
+        await invoke('set_window_caption_color', { color: null })
+        if (requestedMode !== appearanceMode.value) return
         await appWindow.setEffects({ effects: [Effect.Mica] })
       }
     }

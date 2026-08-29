@@ -4,8 +4,13 @@ import { useAppearanceSetting } from '~/composables/useAppearanceSetting'
 
 const windowMocks = vi.hoisted(() => ({
   clearEffects: vi.fn(async () => {}),
+  invoke: vi.fn(async () => {}),
   setBackgroundColor: vi.fn(async () => {}),
   setEffects: vi.fn(async () => {}),
+}))
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: windowMocks.invoke,
 }))
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -68,7 +73,7 @@ describe('useAppearanceSetting', () => {
     expect(localStorage.getItem(APPEARANCE_STORAGE_KEY)).toBe(mode)
   })
 
-  it('sets the native window background before clearing Mica in Off mode', async () => {
+  it('matches the native window surfaces to the app in Off mode', async () => {
     stubWindowsDesktop()
     document.documentElement.classList.add('dark')
 
@@ -78,6 +83,22 @@ describe('useAppearanceSetting', () => {
     expect(windowMocks.setBackgroundColor).toHaveBeenCalledWith([16, 16, 18, 255])
     expect(windowMocks.setBackgroundColor.mock.invocationCallOrder[0])
       .toBeLessThan(windowMocks.clearEffects.mock.invocationCallOrder[0]!)
+    expect(windowMocks.invoke).toHaveBeenCalledWith('set_window_caption_color', {
+      color: [16, 16, 18],
+    })
+    expect(windowMocks.clearEffects.mock.invocationCallOrder[0])
+      .toBeLessThan(windowMocks.invoke.mock.invocationCallOrder[0]!)
+  })
+
+  it('restores the system caption before enabling Mica', async () => {
+    stubWindowsDesktop()
+
+    useAppearanceSetting().setAppearanceMode('mica')
+
+    await vi.waitFor(() => expect(windowMocks.setEffects).toHaveBeenCalledOnce())
+    expect(windowMocks.invoke).toHaveBeenCalledWith('set_window_caption_color', { color: null })
+    expect(windowMocks.invoke.mock.invocationCallOrder[0])
+      .toBeLessThan(windowMocks.setEffects.mock.invocationCallOrder[0]!)
   })
 
   it('restores a persisted mode when the desktop shell loads', () => {

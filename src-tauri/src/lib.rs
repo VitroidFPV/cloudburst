@@ -2,6 +2,7 @@ mod connection_profile;
 mod magnet_handler;
 mod qbittorrent;
 mod tray;
+mod window_appearance;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -58,7 +59,8 @@ pub fn run() {
             qbittorrent::fetch_tags,
             qbittorrent::disconnect_qbittorrent,
             magnet_handler::magnet_handler_status,
-            magnet_handler::open_default_apps_settings
+            magnet_handler::open_default_apps_settings,
+            window_appearance::set_window_caption_color
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
