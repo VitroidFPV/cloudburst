@@ -133,6 +133,56 @@ pub enum MetadataFetch {
     Pending,
 }
 
+/// qBittorrent accepts exactly these per-file priorities; other values are
+/// rejected with HTTP 400.
+pub const TORRENT_FILE_PRIORITIES: [u32; 4] = [0, 1, 6, 7];
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentProperties {
+    id: String,
+    name: String,
+    added_on: u64,
+    completed_on: Option<u64>,
+    time_active: u64,
+    save_path: String,
+    uploaded_total: u64,
+    downloaded_total: u64,
+    availability: f64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentFile {
+    id: u32,
+    path: String,
+    size: u64,
+    progress: f64,
+    priority: u32,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentTracker {
+    url: String,
+    tier: i32,
+    /// Raw qBittorrent tracker status code. Values beyond the documented
+    /// 0-4 have been observed in the wild (e.g. 6 for unreachable), so the
+    /// frontend falls back to a generic label for anything unknown.
+    status: u32,
+    message: String,
+    seeds: u64,
+    peers: u64,
+    leeches: u64,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentFilePriority {
+    id: u32,
+    priority: u32,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct QbittorrentMetadata {
@@ -262,6 +312,46 @@ struct QbittorrentTorrent {
     tags: String,
     added_on: i64,
     save_path: String,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentProperties {
+    hash: String,
+    name: String,
+    addition_date: i64,
+    completion_date: i64,
+    time_elapsed: i64,
+    save_path: String,
+    total_uploaded: i64,
+    total_downloaded: i64,
+    availability: f64,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentTorrentFile {
+    #[serde(default)]
+    index: Option<u32>,
+    name: String,
+    size: u64,
+    progress: f64,
+    priority: u32,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentTracker {
+    url: String,
+    tier: i32,
+    status: u32,
+    #[serde(default)]
+    msg: String,
+    num_seeds: i64,
+    num_peers: i64,
+    num_leeches: i64,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentCategory {
+    name: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -489,6 +579,203 @@ pub async fn fetch_torrent_metadata(
     active
         .client
         .fetch_metadata(&source)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_torrent_properties(
+    torrent_id: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<TorrentProperties, String> {
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .properties(&torrent_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_torrent_files(
+    torrent_id: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<Vec<TorrentFile>, String> {
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .files(&torrent_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_torrent_trackers(
+    torrent_id: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<Vec<TorrentTracker>, String> {
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .trackers(&torrent_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn set_torrent_file_priorities(
+    torrent_id: String,
+    priorities: Vec<TorrentFilePriority>,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), String> {
+    let priorities = normalize_file_priorities(priorities)?;
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    // The endpoint accepts one file per request; the WebUI issues the same loop.
+    for priority in priorities {
+        active
+            .client
+            .set_file_priority(&torrent_id, priority.id, priority.priority)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_torrent_category(
+    torrent_ids: Vec<String>,
+    category: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), String> {
+    let torrent_ids = unique_torrent_ids(torrent_ids);
+    if torrent_ids.is_empty() {
+        return Err("Select at least one torrent.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    // An empty name clears the category. setCategory refuses names the
+    // instance has not seen, so make sure new categories exist first; an
+    // existing category is left untouched.
+    let category = category.trim().to_string();
+    if category.is_empty() {
+        active
+            .client
+            .set_category(&torrent_ids, "")
+            .await
+            .map_err(|error| error.to_string())
+    }
+    else {
+        active
+            .client
+            .set_category_creating_missing(&torrent_ids, &category)
+            .await
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn add_torrent_tags(
+    torrent_ids: Vec<String>,
+    tags: Vec<String>,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), String> {
+    let torrent_ids = unique_torrent_ids(torrent_ids);
+    let tags = normalize_tag_list(tags);
+    if torrent_ids.is_empty() {
+        return Err("Select at least one torrent.".to_string());
+    }
+    if tags.is_empty() {
+        return Err("Provide at least one tag.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    // addTags creates unknown tags on the instance, so assignment is one call.
+    active
+        .client
+        .add_tags(&torrent_ids, &tags)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn remove_torrent_tags(
+    torrent_ids: Vec<String>,
+    tags: Vec<String>,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), String> {
+    let torrent_ids = unique_torrent_ids(torrent_ids);
+    let tags = normalize_tag_list(tags);
+    if torrent_ids.is_empty() {
+        return Err("Select at least one torrent.".to_string());
+    }
+    if tags.is_empty() {
+        return Err("Provide at least one tag.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .remove_tags(&torrent_ids, &tags)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_categories(
+    manager: State<'_, ConnectionManager>,
+) -> Result<Vec<String>, String> {
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .categories()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_tags(manager: State<'_, ConnectionManager>) -> Result<Vec<String>, String> {
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+
+    active
+        .client
+        .tags()
         .await
         .map_err(|error| error.to_string())
 }
@@ -892,8 +1179,197 @@ impl QbittorrentClient {
         }
     }
 
+    async fn properties(&self, torrent_id: &str) -> Result<TorrentProperties, ConnectionError> {
+        let response = self
+            .get_with_query("api/v2/torrents/properties", &[("hash", torrent_id)])
+            .await?;
+        let properties = response
+            .json::<QbittorrentProperties>()
+            .await
+            .map_err(|error| {
+                ConnectionError::InvalidResponse(format!(
+                    "qBittorrent returned an unreadable torrent properties response: {error}"
+                ))
+            })?;
+
+        Ok(TorrentProperties {
+            id: properties.hash,
+            name: properties.name,
+            added_on: non_negative(properties.addition_date),
+            completed_on: (properties.completion_date >= 0)
+                .then_some(properties.completion_date as u64),
+            time_active: non_negative(properties.time_elapsed),
+            save_path: properties.save_path,
+            uploaded_total: non_negative(properties.total_uploaded),
+            downloaded_total: non_negative(properties.total_downloaded),
+            availability: properties.availability,
+        })
+    }
+
+    async fn files(&self, torrent_id: &str) -> Result<Vec<TorrentFile>, ConnectionError> {
+        let response = self
+            .get_with_query("api/v2/torrents/files", &[("hash", torrent_id)])
+            .await?;
+        let files = response
+            .json::<Vec<QbittorrentTorrentFile>>()
+            .await
+            .map_err(|error| {
+                ConnectionError::InvalidResponse(format!(
+                    "qBittorrent returned an unreadable torrent file list: {error}"
+                ))
+            })?;
+
+        Ok(files
+            .into_iter()
+            .enumerate()
+            .map(|(position, file)| TorrentFile {
+                id: file.index.unwrap_or(position as u32),
+                path: file.name,
+                size: file.size,
+                progress: file.progress,
+                priority: file.priority,
+            })
+            .collect())
+    }
+
+    async fn trackers(&self, torrent_id: &str) -> Result<Vec<TorrentTracker>, ConnectionError> {
+        let response = self
+            .get_with_query("api/v2/torrents/trackers", &[("hash", torrent_id)])
+            .await?;
+        let trackers = response
+            .json::<Vec<QbittorrentTracker>>()
+            .await
+            .map_err(|error| {
+                ConnectionError::InvalidResponse(format!(
+                    "qBittorrent returned an unreadable tracker list: {error}"
+                ))
+            })?;
+
+        Ok(trackers
+            .into_iter()
+            .map(|tracker| TorrentTracker {
+                url: tracker.url,
+                tier: tracker.tier,
+                status: tracker.status,
+                message: tracker.msg,
+                seeds: non_negative(tracker.num_seeds),
+                peers: non_negative(tracker.num_peers),
+                leeches: non_negative(tracker.num_leeches),
+            })
+            .collect())
+    }
+
+    async fn set_file_priority(
+        &self,
+        torrent_id: &str,
+        file_id: u32,
+        priority: u32,
+    ) -> Result<(), ConnectionError> {
+        let form = [
+            ("hash", torrent_id.to_string()),
+            ("id", file_id.to_string()),
+            ("priority", priority.to_string()),
+        ];
+        self.post_form("api/v2/torrents/filePrio", &form).await?;
+        Ok(())
+    }
+
+    async fn categories(&self) -> Result<Vec<String>, ConnectionError> {
+        let response = self.get("api/v2/torrents/categories").await?;
+        let categories = response
+            .json::<std::collections::HashMap<String, QbittorrentCategory>>()
+            .await
+            .map_err(|error| {
+                ConnectionError::InvalidResponse(format!(
+                    "qBittorrent returned an unreadable category list: {error}"
+                ))
+            })?;
+
+        let mut names: Vec<String> = categories.into_iter().map(|(_, category)| category.name).collect();
+        names.sort();
+        Ok(names)
+    }
+
+    async fn tags(&self) -> Result<Vec<String>, ConnectionError> {
+        let response = self.get("api/v2/torrents/tags").await?;
+        let mut tags: Vec<String> = response.json().await.map_err(|error| {
+            ConnectionError::InvalidResponse(format!(
+                "qBittorrent returned an unreadable tag list: {error}"
+            ))
+        })?;
+        tags.sort();
+        Ok(tags)
+    }
+
+    async fn create_category(&self, category: &str) -> Result<(), ConnectionError> {
+        let form = [("category", category.to_string())];
+        self.post_form("api/v2/torrents/createCategory", &form)
+            .await?;
+        Ok(())
+    }
+
+    async fn set_category(
+        &self,
+        torrent_ids: &[String],
+        category: &str,
+    ) -> Result<(), ConnectionError> {
+        let form = [
+            ("hashes", torrent_ids.join("|")),
+            ("category", category.to_string()),
+        ];
+        self.post_form("api/v2/torrents/setCategory", &form).await?;
+        Ok(())
+    }
+
+    /// setCategory refuses names the instance has not seen, so make sure the
+    /// category exists first. An existing category is left untouched; the
+    /// assignment call is the real gate either way.
+    async fn set_category_creating_missing(
+        &self,
+        torrent_ids: &[String],
+        category: &str,
+    ) -> Result<(), ConnectionError> {
+        let _ = self.create_category(category).await;
+        self.set_category(torrent_ids, category).await
+    }
+
+    async fn add_tags(&self, torrent_ids: &[String], tags: &[String]) -> Result<(), ConnectionError> {
+        let form = [
+            ("hashes", torrent_ids.join("|")),
+            ("tags", tags.join(",")),
+        ];
+        self.post_form("api/v2/torrents/addTags", &form).await?;
+        Ok(())
+    }
+
+    async fn remove_tags(
+        &self,
+        torrent_ids: &[String],
+        tags: &[String],
+    ) -> Result<(), ConnectionError> {
+        let form = [
+            ("hashes", torrent_ids.join("|")),
+            ("tags", tags.join(",")),
+        ];
+        self.post_form("api/v2/torrents/removeTags", &form).await?;
+        Ok(())
+    }
+
     async fn get(&self, path: &str) -> Result<reqwest::Response, ConnectionError> {
         let url = self.api_url(path)?;
+        let request = self.authentication.apply(self.http.get(url));
+        self.send(request).await
+    }
+
+    async fn get_with_query(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<reqwest::Response, ConnectionError> {
+        let mut url = self.api_url(path)?;
+        for (key, value) in query {
+            url.query_pairs_mut().append_pair(key, value);
+        }
         let request = self.authentication.apply(self.http.get(url));
         self.send(request).await
     }
@@ -1099,6 +1575,41 @@ fn unique_torrent_ids(torrent_ids: Vec<String>) -> Vec<String> {
     })
 }
 
+fn normalize_tag_list(tags: Vec<String>) -> Vec<String> {
+    tags.iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
+        .fold(Vec::new(), |mut unique, tag| {
+            if !unique.contains(&tag) {
+                unique.push(tag);
+            }
+            unique
+        })
+}
+
+fn normalize_file_priorities(
+    priorities: Vec<TorrentFilePriority>,
+) -> Result<Vec<TorrentFilePriority>, String> {
+    let mut normalized: Vec<TorrentFilePriority> = Vec::new();
+    for priority in priorities {
+        if !TORRENT_FILE_PRIORITIES.contains(&priority.priority) {
+            return Err(
+                "File priority must be 0 (skip), 1 (normal), 6 (high), or 7 (maximum)."
+                    .to_string(),
+            );
+        }
+        if !normalized.iter().any(|existing| existing.id == priority.id) {
+            normalized.push(priority);
+        }
+    }
+
+    if normalized.is_empty() {
+        return Err("Select at least one file.".to_string());
+    }
+
+    Ok(normalized)
+}
+
 fn normalize_add_input(input: AddTorrentsInput) -> Result<AddTorrentsInput, String> {
     let urls: Vec<String> = input
         .urls
@@ -1128,6 +1639,15 @@ fn normalize_add_input(input: AddTorrentsInput) -> Result<AddTorrentsInput, Stri
             if urls.len() != 1 || !files.is_empty() {
                 return Err(
                     "File priorities can only apply to a single torrent added by link or hash."
+                        .to_string(),
+                );
+            }
+            if !priorities
+                .iter()
+                .all(|priority| TORRENT_FILE_PRIORITIES.contains(priority))
+            {
+                return Err(
+                    "File priority must be 0 (skip), 1 (normal), 6 (high), or 7 (maximum)."
                         .to_string(),
                 );
             }
@@ -1708,6 +2228,223 @@ mod tests {
 
         assert!(requests[0].contains("name=\"filePriorities\""));
         assert!(requests[0].contains("1,0,1"));
+    }
+
+    #[test]
+    fn fetches_properties_files_and_trackers_for_a_torrent() {
+        let properties_json = r#"{
+            "hash":"abc123",
+            "name":"BigBuckBunny_124",
+            "addition_date":1787950567,
+            "completion_date":-1,
+            "time_elapsed":28,
+            "save_path":"C:/Downloads",
+            "total_uploaded":0,
+            "total_downloaded":76651643,
+            "availability":4.17
+        }"#;
+        let files_json = r#"[
+            {"index":0,"name":"BigBuckBunny_124/a.txt","size":10,"progress":1.0,"priority":1},
+            {"name":"BigBuckBunny_124/b.bin","size":20,"progress":0.5,"priority":6}
+        ]"#;
+        // qBittorrent 5.2 reports per-endpoint announce state on real
+        // trackers, plus synthetic DHT/PeX/LSD entries with tier -1.
+        let trackers_json = r#"[
+            {"url":"** [DHT] **","tier":-1,"status":2,"msg":"","num_seeds":2,"num_peers":0,"num_leeches":0},
+            {"url":"http://bt1.archive.org:6969/announce","tier":0,"status":2,"msg":"","num_seeds":10,"num_peers":14,"num_leeches":4,"endpoints":[{"name":"192.168.1.67:23786","bt_version":1,"status":2,"num_seeds":10,"num_peers":14,"num_leeches":4,"num_downloaded":0}]}
+        ]"#;
+        let (endpoint, requests, server) = serve_responses(vec![
+            properties_json,
+            files_json,
+            trackers_json,
+        ]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        let (properties, files, trackers) = tauri::async_runtime::block_on(async {
+            (
+                client.properties("abc123").await.unwrap(),
+                client.files("abc123").await.unwrap(),
+                client.trackers("abc123").await.unwrap(),
+            )
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert_eq!(properties.id, "abc123");
+        assert_eq!(properties.name, "BigBuckBunny_124");
+        assert_eq!(properties.added_on, 1787950567);
+        assert_eq!(properties.completed_on, None);
+        assert_eq!(properties.time_active, 28);
+        assert_eq!(properties.save_path, "C:/Downloads");
+        assert_eq!(properties.uploaded_total, 0);
+        assert_eq!(properties.downloaded_total, 76651643);
+        assert!((properties.availability - 4.17).abs() < 1e-9);
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].id, 0);
+        assert_eq!(files[0].path, "BigBuckBunny_124/a.txt");
+        assert_eq!(files[0].priority, 1);
+        assert_eq!(files[1].id, 1);
+        assert_eq!(files[1].priority, 6);
+
+        assert_eq!(trackers.len(), 2);
+        assert_eq!(trackers[0].url, "** [DHT] **");
+        assert_eq!(trackers[0].tier, -1);
+        assert_eq!(trackers[1].url, "http://bt1.archive.org:6969/announce");
+        assert_eq!(trackers[1].status, 2);
+        assert_eq!(trackers[1].seeds, 10);
+        assert_eq!(trackers[1].peers, 14);
+        assert_eq!(trackers[1].leeches, 4);
+
+        assert!(requests[0].starts_with("GET /api/v2/torrents/properties?hash=abc123 "));
+        assert!(requests[1].starts_with("GET /api/v2/torrents/files?hash=abc123 "));
+        assert!(requests[2].starts_with("GET /api/v2/torrents/trackers?hash=abc123 "));
+    }
+
+    #[test]
+    fn sets_file_priorities_one_request_per_file() {
+        let (endpoint, requests, server) = serve_responses(vec!["Ok.", "Ok."]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        tauri::async_runtime::block_on(async {
+            client.set_file_priority("abc123", 0, 0).await.unwrap();
+            client.set_file_priority("abc123", 2, 6).await.unwrap();
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests
+            .iter()
+            .all(|request| request.starts_with("POST /api/v2/torrents/filePrio ")));
+        assert!(requests[0].contains("hash=abc123&id=0&priority=0"));
+        assert!(requests[1].contains("hash=abc123&id=2&priority=6"));
+    }
+
+    #[test]
+    fn creates_a_category_before_assigning_it() {
+        let (endpoint, requests, server) = serve_responses(vec!["Ok.", "Ok."]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        tauri::async_runtime::block_on(async {
+            client
+                .set_category_creating_missing(&["abc".to_string(), "def".to_string()], "Fresh")
+                .await
+                .unwrap();
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests[0].starts_with("POST /api/v2/torrents/createCategory "));
+        assert!(requests[0].contains("category=Fresh"));
+        assert!(requests[1].starts_with("POST /api/v2/torrents/setCategory "));
+        assert!(requests[1].contains("hashes=abc%7Cdef&category=Fresh"));
+    }
+
+    #[test]
+    fn adds_and_removes_tags() {
+        let (endpoint, requests, server) = serve_responses(vec!["Ok.", "Ok."]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        tauri::async_runtime::block_on(async {
+            client
+                .add_tags(&["abc".to_string(), "def".to_string()], &["Movies".to_string(), "Shows".to_string()])
+                .await
+                .unwrap();
+            client
+                .remove_tags(&["abc".to_string()], &["Movies".to_string()])
+                .await
+                .unwrap();
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert!(requests[0].starts_with("POST /api/v2/torrents/addTags "));
+        assert!(requests[0].contains("hashes=abc%7Cdef&tags=Movies%2CShows"));
+        assert!(requests[1].starts_with("POST /api/v2/torrents/removeTags "));
+        assert!(requests[1].contains("hashes=abc&tags=Movies"));
+    }
+
+    #[test]
+    fn fetches_categories_and_tags_sorted() {
+        let categories_json =
+            r#"{"Shows":{"name":"Shows","savePath":""},"Movies":{"name":"Movies","savePath":""}}"#;
+        let (endpoint, requests, server) =
+            serve_responses(vec![categories_json, r#"["Shows","Movies"]"#]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        let (categories, tags) = tauri::async_runtime::block_on(async {
+            (client.categories().await.unwrap(), client.tags().await.unwrap())
+        });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert_eq!(categories, vec!["Movies".to_string(), "Shows".to_string()]);
+        assert_eq!(tags, vec!["Movies".to_string(), "Shows".to_string()]);
+        assert!(requests[0].starts_with("GET /api/v2/torrents/categories "));
+        assert!(requests[1].starts_with("GET /api/v2/torrents/tags "));
+    }
+
+    #[test]
+    fn normalizes_file_priorities_and_tags() {
+        let valid = normalize_file_priorities(vec![
+            TorrentFilePriority { id: 2, priority: 6 },
+            TorrentFilePriority { id: 0, priority: 0 },
+            TorrentFilePriority { id: 2, priority: 1 },
+        ])
+        .unwrap();
+        assert_eq!(
+            valid,
+            vec![
+                TorrentFilePriority { id: 2, priority: 6 },
+                TorrentFilePriority { id: 0, priority: 0 },
+            ]
+        );
+
+        assert!(normalize_file_priorities(vec![TorrentFilePriority { id: 0, priority: 4 }]).is_err());
+        assert!(normalize_file_priorities(Vec::new()).is_err());
+
+        let tags = normalize_tag_list(vec![
+            "Movies".to_string(),
+            " Movies ".to_string(),
+            String::new(),
+            "Shows".to_string(),
+        ]);
+        assert_eq!(tags, vec!["Movies".to_string(), "Shows".to_string()]);
     }
 
     fn serve_responses(

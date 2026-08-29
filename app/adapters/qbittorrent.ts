@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionSnapshot, MetadataFetch, RestoreOutcome, TorrentMetadata } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionSnapshot, MetadataFetch, RestoreOutcome, TorrentFile, TorrentFilePriority, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 
 export interface QbittorrentAdapter {
   connect: (input: ConnectionInput) => Promise<ConnectionSnapshot>
@@ -11,6 +11,15 @@ export interface QbittorrentAdapter {
   defaultSavePath: () => Promise<string>
   parseTorrentMetadata: (files: AddTorrentFile[]) => Promise<TorrentMetadata[]>
   fetchTorrentMetadata: (source: string) => Promise<MetadataFetch>
+  fetchTorrentProperties: (torrentId: string) => Promise<TorrentProperties>
+  fetchTorrentFiles: (torrentId: string) => Promise<TorrentFile[]>
+  fetchTorrentTrackers: (torrentId: string) => Promise<TorrentTracker[]>
+  setTorrentFilePriorities: (torrentId: string, priorities: TorrentFilePriority[]) => Promise<void>
+  setTorrentCategory: (torrentIds: string[], category: string) => Promise<void>
+  addTorrentTags: (torrentIds: string[], tags: string[]) => Promise<void>
+  removeTorrentTags: (torrentIds: string[], tags: string[]) => Promise<void>
+  fetchCategories: () => Promise<string[]>
+  fetchTags: () => Promise<string[]>
   disconnect: () => Promise<void>
 }
 
@@ -24,5 +33,14 @@ export const tauriQbittorrentAdapter: QbittorrentAdapter = {
   defaultSavePath: () => invoke<string>('fetch_default_save_path'),
   parseTorrentMetadata: files => invoke<TorrentMetadata[]>('parse_torrent_metadata', { files }),
   fetchTorrentMetadata: source => invoke<MetadataFetch>('fetch_torrent_metadata', { source }),
+  fetchTorrentProperties: torrentId => invoke<TorrentProperties>('fetch_torrent_properties', { torrentId }),
+  fetchTorrentFiles: torrentId => invoke<TorrentFile[]>('fetch_torrent_files', { torrentId }),
+  fetchTorrentTrackers: torrentId => invoke<TorrentTracker[]>('fetch_torrent_trackers', { torrentId }),
+  setTorrentFilePriorities: (torrentId, priorities) => invoke('set_torrent_file_priorities', { torrentId, priorities }),
+  setTorrentCategory: (torrentIds, category) => invoke('set_torrent_category', { torrentIds, category }),
+  addTorrentTags: (torrentIds, tags) => invoke('add_torrent_tags', { torrentIds, tags }),
+  removeTorrentTags: (torrentIds, tags) => invoke('remove_torrent_tags', { torrentIds, tags }),
+  fetchCategories: () => invoke<string[]>('fetch_categories'),
+  fetchTags: () => invoke<string[]>('fetch_tags'),
   disconnect: () => invoke('disconnect_qbittorrent'),
 }

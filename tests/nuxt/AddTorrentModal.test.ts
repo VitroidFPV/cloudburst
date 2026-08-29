@@ -129,8 +129,9 @@ describe('AddTorrentModal', () => {
     expect(document.body.textContent).toContain('Show.S01')
     expect(document.body.textContent).toContain('ep2.mkv')
 
-    const ep2 = findInModal<HTMLButtonElement>('button[aria-label="Include ep2.mkv"]')[0]!
-    ep2.click()
+    // ep2 starts at Normal; clicking its active rating step clears it to skip.
+    const ep2Rating = findInModal<HTMLButtonElement>('[role="radiogroup"][aria-label="Priority for ep2.mkv"] button[role="radio"]')[0]!
+    ep2Rating.click()
     await flushPromises()
 
     await clickButtonWithLabel('Add torrent')

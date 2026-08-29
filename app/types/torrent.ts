@@ -87,6 +87,43 @@ export interface TorrentMetadata {
 
 export type MetadataFetch = { status: 'ready', metadata: TorrentMetadata } | { status: 'pending' }
 
+export type TorrentFilePriorityValue = 0 | 1 | 6 | 7
+
+export interface TorrentProperties {
+  id: string
+  name: string
+  addedOn: number
+  completedOn: number | null
+  timeActive: number
+  savePath: string
+  uploadedTotal: number
+  downloadedTotal: number
+  availability: number
+}
+
+export interface TorrentFile {
+  id: number
+  path: string
+  size: number
+  progress: number
+  priority: number
+}
+
+export interface TorrentTracker {
+  url: string
+  tier: number
+  status: number
+  message: string
+  seeds: number
+  peers: number
+  leeches: number
+}
+
+export interface TorrentFilePriority {
+  id: number
+  priority: TorrentFilePriorityValue
+}
+
 export type MagnetHandlerStatus = 'cloudburstDefault' | 'otherProgram' | 'notRegistered'
 
 export interface TorrentFilter {

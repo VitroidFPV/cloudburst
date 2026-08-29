@@ -1,21 +1,30 @@
+import type { TorrentFilePriorityValue } from '../types/torrent'
+
 export interface TorrentFileTreeNode {
   name: string
   path: string
   isFolder: boolean
   size: number
   fileIndex: number | null
+  progress: number | null
   children: TorrentFileTreeNode[]
+}
+
+export interface TorrentTreeFileInput {
+  path: string
+  length: number
+  progress?: number
 }
 
 const segmentPattern = /[\\/]/
 
-export const buildFileTree = (files: Array<{ path: string, length: number }>): TorrentFileTreeNode[] => {
+export const buildFileTree = (files: TorrentTreeFileInput[]): TorrentFileTreeNode[] => {
   const roots: TorrentFileTreeNode[] = []
 
   const findOrCreate = (nodes: TorrentFileTreeNode[], name: string, isFolder: boolean, path: string) => {
     const existing = nodes.find(node => node.name === name && node.isFolder === isFolder)
     if (existing) return existing
-    const node: TorrentFileTreeNode = { name, path, isFolder, size: 0, fileIndex: null, children: [] }
+    const node: TorrentFileTreeNode = { name, path, isFolder, size: 0, fileIndex: null, progress: null, children: [] }
     nodes.push(node)
     return node
   }
@@ -30,6 +39,7 @@ export const buildFileTree = (files: Array<{ path: string, length: number }>): T
       if (isLeaf) {
         node.fileIndex = fileIndex
         node.size = file.length
+        node.progress = file.progress ?? null
       }
       level = node.children
     })
@@ -43,6 +53,21 @@ export const buildFileTree = (files: Array<{ path: string, length: number }>): T
 
   return roots
 }
+
+// qBittorrent per-file priorities: 0 skip, 1 normal, 6 high, 7 maximum.
+// The rating control maps its three steps onto everything above skip.
+export const priorityValues: readonly TorrentFilePriorityValue[] = [0, 1, 6, 7]
+
+export const ratingForPriority = (priority: number): number => {
+  const index = priorityValues.indexOf(priority as TorrentFilePriorityValue)
+  return index >= 0 ? index : 1
+}
+
+export const priorityForRating = (rating: number): TorrentFilePriorityValue =>
+  priorityValues[Math.min(Math.max(Math.round(rating), 0), priorityValues.length - 1)]!
+
+export const priorityLabel = (priority: number): string =>
+  ({ 0: 'Skipped', 1: 'Normal', 6: 'High', 7: 'Maximum' })[priority] ?? 'Normal'
 
 const genericFileIcon = 'i-lucide-file'
 
@@ -109,7 +134,7 @@ export const fileIconFor = (path: string) => {
 // "No folder" layout: remove the single root directory shared by every
 // file, the way qBittorrent strips it before placing files in the save
 // location. Torrents without a common root are left untouched.
-export const stripRootFolder = (files: Array<{ path: string, length: number }>) => {
+export const stripRootFolder = (files: TorrentTreeFileInput[]) => {
   if (files.length < 2) return files
 
   const segments = files.map(file => file.path.split(segmentPattern).filter(Boolean))

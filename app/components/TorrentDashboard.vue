@@ -40,6 +40,11 @@ const {
   loadDefaultSavePath,
   parseTorrentMetadata,
   fetchTorrentMetadata,
+  setTorrentCategory,
+  addTorrentTags,
+  removeTorrentTags,
+  fetchCategories,
+  fetchTags,
   disconnect,
   chooseFilter,
   chooseCategory,
@@ -49,6 +54,32 @@ const addModal = useTemplateRef<AddTorrentModalApi>('addModal')
 const autoSelectIds = ref<string[]>([])
 const dropActive = ref(false)
 let dragDepth = 0
+
+const detailTorrentId = ref<string | null>(null)
+const openDetails = (torrentId: string) => {
+  detailTorrentId.value = torrentId
+}
+
+const instanceCategories = ref<string[]>([])
+const instanceTags = ref<string[]>([])
+
+const loadInstanceCollections = async () => {
+  const [fetchedCategories, fetchedTags] = await Promise.all([fetchCategories(), fetchTags()])
+  if (fetchedCategories) instanceCategories.value = fetchedCategories
+  if (fetchedTags) instanceTags.value = fetchedTags
+}
+
+const onSetCategory = async (torrentIds: string[], category: string) => {
+  if (await setTorrentCategory(torrentIds, category)) void loadInstanceCollections()
+}
+
+const onAddTags = async (torrentIds: string[], tags: string[]) => {
+  if (await addTorrentTags(torrentIds, tags)) void loadInstanceCollections()
+}
+
+const onRemoveTags = async (torrentIds: string[], tags: string[]) => {
+  if (await removeTorrentTags(torrentIds, tags)) void loadInstanceCollections()
+}
 
 const settingsOpen = ref(false)
 const authenticationMode = ref<AuthenticationMode>('apiKey')
@@ -354,7 +385,12 @@ const openMagnetSettings = () => {
 }
 
 watch(connectionStatus, (status) => {
-  if (status === 'connected') void loadDefaultSavePath()
+  if (status === 'connected') {
+    void loadDefaultSavePath()
+    void loadInstanceCollections()
+    return
+  }
+  if (status === 'disconnected') detailTorrentId.value = null
 })
 
 let stopAutoRefresh: (() => void) | undefined
@@ -418,8 +454,14 @@ onBeforeUnmount(() => {
           :actions-disabled="torrentActionsDisabled"
           :action-pending="activityUpdating"
           :auto-select-ids="autoSelectIds"
+          :categories="instanceCategories"
+          :tags="instanceTags"
           @set-paused="updateTorrentActivity"
           @remove-torrents="removeSelectedTorrents"
+          @set-category="onSetCategory"
+          @add-tags="onAddTags"
+          @remove-tags="onRemoveTags"
+          @open="openDetails"
         >
           <template #actions>
             <UButton
@@ -492,6 +534,21 @@ onBeforeUnmount(() => {
           </template>
         </TorrentTable>
       </template>
+    </UDashboardPanel>
+
+    <UDashboardPanel
+      v-if="detailTorrentId"
+      id="torrent-detail"
+      resizable
+      :default-size="35"
+      :min-size="25"
+      :max-size="50"
+    >
+      <TorrentDetailPanel
+        :torrent-id="detailTorrentId"
+        @close="detailTorrentId = null"
+        @changed="loadInstanceCollections"
+      />
     </UDashboardPanel>
     </UDashboardGroup>
 

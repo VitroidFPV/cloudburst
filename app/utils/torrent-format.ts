@@ -46,6 +46,18 @@ export const formatEta = (seconds: number | null, status: TorrentStatus) => {
   return `${remainingSeconds}s`
 }
 
+export const formatDuration = (seconds: number) => {
+  if (seconds < 60) return `${seconds}s`
+
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor(seconds % 86_400 / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+}
+
 export const statusLabel: Record<TorrentStatus, string> = {
   downloading: 'Downloading',
   seeding: 'Seeding',
@@ -63,3 +75,12 @@ export const statusIcon: Record<TorrentStatus, string> = {
   stalled: 'i-lucide-clock-3',
   error: 'i-lucide-triangle-alert',
 }
+
+export const statusColor = {
+  downloading: 'success',
+  seeding: 'info',
+  paused: 'neutral',
+  checking: 'primary',
+  stalled: 'warning',
+  error: 'error',
+} as const satisfies Record<TorrentStatus, 'primary' | 'success' | 'neutral' | 'info' | 'warning' | 'error'>

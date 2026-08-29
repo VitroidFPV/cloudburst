@@ -1,4 +1,4 @@
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, MetadataFetch, RestoreOutcome, Torrent, TorrentFilter, TorrentFilterId, TorrentMetadata } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, MetadataFetch, RestoreOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
@@ -261,6 +261,166 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
+  // Detail-panel pollers run on their own cadence and must not interfere
+  // with library operations, so they stay outside the operation generation.
+  const fetchTorrentProperties = async (torrentId: string): Promise<TorrentProperties | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchTorrentProperties(torrentId)
+    }
+    catch {
+      return null
+    }
+  }
+
+  const fetchTorrentFiles = async (torrentId: string): Promise<TorrentFile[] | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchTorrentFiles(torrentId)
+    }
+    catch {
+      return null
+    }
+  }
+
+  const fetchTorrentTrackers = async (torrentId: string): Promise<TorrentTracker[] | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchTorrentTrackers(torrentId)
+    }
+    catch {
+      return null
+    }
+  }
+
+  const setTorrentFilePriorities = async (torrentId: string, priorities: TorrentFilePriority[]) => {
+    if (!priorities.length || connectionStatus.value !== 'connected' || stale.value) return false
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      await adapter.setTorrentFilePriorities(torrentId, priorities)
+      if (!isCurrentOperation(operation)) return false
+
+      const snapshot = await adapter.refresh()
+      if (isCurrentOperation(operation)) applySnapshot(snapshot)
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
+  const setTorrentCategory = async (torrentIds: string[], category: string) => {
+    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      await adapter.setTorrentCategory(uniqueTorrentIds, category)
+      if (!isCurrentOperation(operation)) return false
+
+      const snapshot = await adapter.refresh()
+      if (isCurrentOperation(operation)) applySnapshot(snapshot)
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
+  const addTorrentTags = async (torrentIds: string[], tags: string[]) => {
+    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      await adapter.addTorrentTags(uniqueTorrentIds, tags)
+      if (!isCurrentOperation(operation)) return false
+
+      const snapshot = await adapter.refresh()
+      if (isCurrentOperation(operation)) applySnapshot(snapshot)
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
+  const removeTorrentTags = async (torrentIds: string[], tags: string[]) => {
+    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+
+    try {
+      await adapter.removeTorrentTags(uniqueTorrentIds, tags)
+      if (!isCurrentOperation(operation)) return false
+
+      const snapshot = await adapter.refresh()
+      if (isCurrentOperation(operation)) applySnapshot(snapshot)
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
+  }
+
+  const fetchCategories = async (): Promise<string[] | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchCategories()
+    }
+    catch {
+      return null
+    }
+  }
+
+  const fetchTags = async (): Promise<string[] | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value) return null
+
+    try {
+      return await adapter.fetchTags()
+    }
+    catch {
+      return null
+    }
+  }
+
   const disconnect = async () => {
     const operation = beginOperation()
 
@@ -364,6 +524,15 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     defaultSavePath,
     parseTorrentMetadata,
     fetchTorrentMetadata,
+    fetchTorrentProperties,
+    fetchTorrentFiles,
+    fetchTorrentTrackers,
+    setTorrentFilePriorities,
+    setTorrentCategory,
+    addTorrentTags,
+    removeTorrentTags,
+    fetchCategories,
+    fetchTags,
     retry,
     startAutoRefresh,
     disconnect,

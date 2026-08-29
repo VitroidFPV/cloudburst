@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ContextMenuItem, TableColumn, TableRow } from '@nuxt/ui'
 import type { Torrent, TorrentStatus } from '~/types/torrent'
-import { formatAddedOn, formatAddedOnFull, formatBytes, formatEta, formatSpeed, statusIcon, statusLabel } from '~/utils/torrent-format'
+import { formatAddedOn, formatAddedOnFull, formatBytes, formatEta, formatSpeed, statusColor, statusIcon, statusLabel } from '~/utils/torrent-format'
 import { resolveTorrentSelection, shouldSelectAllTorrents } from '~/utils/torrent-selection'
 
 const props = defineProps<{
@@ -9,12 +9,23 @@ const props = defineProps<{
   actionsDisabled?: boolean
   actionPending?: boolean
   autoSelectIds?: string[]
+  categories?: string[]
+  tags?: string[]
 }>()
 
 const emit = defineEmits<{
   'set-paused': [torrentIds: string[], paused: boolean]
   'remove-torrents': [torrentIds: string[], deleteFiles: boolean]
+  'set-category': [torrentIds: string[], category: string]
+  'add-tags': [torrentIds: string[], tags: string[]]
+  'remove-tags': [torrentIds: string[], tags: string[]]
+  open: [torrentId: string]
 }>()
+
+// UTable has no double-click hook, so a second click on the same row within
+// the threshold counts as opening the torrent's details.
+const DOUBLE_CLICK_MS = 400
+let lastClick: { id: string, at: number } | undefined
 
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
@@ -91,33 +102,105 @@ const confirmRemoval = (deleteFiles: boolean) => {
   emit('remove-torrents', selectedTorrents.value.map(torrent => torrent.id), deleteFiles)
 }
 
-const contextMenuItems = computed<ContextMenuItem[][]>(() => [[
-  {
-    label: 'Start',
-    icon: 'i-lucide-play',
-    disabled: activityActionsDisabled.value || !canStartSelected.value,
-    onSelect: () => emitSelectedActivity(false),
-  },
-  {
-    label: 'Stop',
-    icon: 'i-lucide-square',
-    disabled: activityActionsDisabled.value || !canStopSelected.value,
-    onSelect: () => emitSelectedActivity(true),
-  },
-], [
-  {
-    label: 'Remove…',
-    icon: 'i-lucide-trash-2',
-    disabled: activityActionsDisabled.value,
-    onSelect: () => {
-      removeOpen.value = true
+const contextMenuItems = computed<ContextMenuItem[][]>(() => {
+  const groups: ContextMenuItem[][] = [[
+    {
+      label: 'Details',
+      icon: 'i-lucide-panel-right-open',
+      disabled: selectedCount.value !== 1,
+      onSelect: () => emit('open', selectedTorrents.value[0]!.id),
     },
-  },
-]])
+    {
+      label: 'Start',
+      icon: 'i-lucide-play',
+      disabled: activityActionsDisabled.value || !canStartSelected.value,
+      onSelect: () => emitSelectedActivity(false),
+    },
+    {
+      label: 'Stop',
+      icon: 'i-lucide-square',
+      disabled: activityActionsDisabled.value || !canStopSelected.value,
+      onSelect: () => emitSelectedActivity(true),
+    },
+  ]]
+
+  const selectedIds = selectedTorrents.value.map(torrent => torrent.id)
+  const organizeItems: ContextMenuItem[] = []
+
+  if (props.categories?.length) {
+    organizeItems.push({
+      label: 'Set category',
+      icon: 'i-lucide-folder-input',
+      children: [
+        ...props.categories.map(category => ({
+          label: category,
+          icon: selectionCategory.value === category ? 'i-lucide-check' : undefined,
+          onSelect: () => emit('set-category', selectedIds, category),
+        })),
+        {
+          label: 'No category',
+          icon: 'i-lucide-folder-minus',
+          disabled: !selectionCategory.value,
+          onSelect: () => emit('set-category', selectedIds, ''),
+        },
+      ],
+    })
+  }
+
+  if (props.tags?.length) {
+    organizeItems.push({
+      label: 'Tags',
+      icon: 'i-lucide-tags',
+      children: props.tags.map((tag) => {
+        const onEverySelection = selectedTorrents.value.every(torrent => torrent.tags.includes(tag))
+        return {
+          label: tag,
+          icon: onEverySelection ? 'i-lucide-check' : undefined,
+          onSelect: () => (onEverySelection
+            ? emit('remove-tags', selectedIds, [tag])
+            : emit('add-tags', selectedIds, [tag])),
+        }
+      }),
+    })
+  }
+
+  if (organizeItems.length) groups.push(organizeItems)
+
+  groups.push([
+    {
+      label: 'Remove…',
+      icon: 'i-lucide-trash-2',
+      disabled: activityActionsDisabled.value,
+      onSelect: () => {
+        removeOpen.value = true
+      },
+    },
+  ])
+
+  return groups
+})
+
+const selectionCategory = computed(() => {
+  const first = selectedTorrents.value[0]
+  if (!first) return undefined
+  return selectedTorrents.value.every(torrent => torrent.category === first.category)
+    ? first.category
+    : undefined
+})
 
 const selectRow = (event: Event, row: TableRow<Torrent>) => {
   const mouseEvent = event as MouseEvent
   const additive = mouseEvent.ctrlKey || mouseEvent.metaKey
+
+  const now = Date.now()
+  const isDoubleClick = !additive && !mouseEvent.shiftKey
+    && lastClick?.id === row.id && now - lastClick.at <= DOUBLE_CLICK_MS
+  lastClick = { id: row.id, at: now }
+  if (isDoubleClick) {
+    emit('open', row.original.id)
+    return
+  }
+
   const result = resolveTorrentSelection({
     orderedIds: (torrentTable.value?.tableApi.getRowModel().rows || []).map(orderedRow => orderedRow.id),
     targetId: row.id,
@@ -350,15 +433,6 @@ const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) 
     }),
   ])
 }
-
-const statusColor = {
-  downloading: 'success',
-  seeding: 'info',
-  paused: 'neutral',
-  checking: 'primary',
-  stalled: 'warning',
-  error: 'error',
-} as const satisfies Record<TorrentStatus, 'primary' | 'success' | 'neutral' | 'info' | 'warning' | 'error'>
 
 // Static classes so Tailwind can extract them; aligned with statusColor hues.
 // 'primary' is black/white in this theme, so transfer activity uses 'info' for a real hue.
