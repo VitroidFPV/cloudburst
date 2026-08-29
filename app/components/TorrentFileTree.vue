@@ -151,7 +151,7 @@ watch(() => props.priorities, () => emitChange())
     <ul class="max-h-128 min-h-0 space-y-0.5 overflow-y-auto pe-1">
       <li v-for="row in visibleRows" :key="row.node.path">
         <div
-          class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-elevated/50"
+          class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-elevated"
           :style="{ paddingInlineStart: `${row.depth * 18 + 4}px` }"
         >
           <button

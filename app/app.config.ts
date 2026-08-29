@@ -7,5 +7,30 @@ export default defineAppConfig({
       error: 'rose',
       neutral: 'zinc',
     },
+    progress: {
+      slots: {
+        base: 'bg-(--cloudburst-progress-track)',
+      },
+    },
+    input: {
+      defaultVariants: {
+        variant: 'subtle',
+      },
+    },
+    inputMenu: {
+      defaultVariants: {
+        variant: 'subtle',
+      },
+    },
+    select: {
+      defaultVariants: {
+        variant: 'subtle',
+      },
+    },
+    textarea: {
+      defaultVariants: {
+        variant: 'subtle',
+      },
+    },
   },
 })

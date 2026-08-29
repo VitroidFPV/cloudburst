@@ -488,7 +488,7 @@ const resizableHeader = (label: string) => ({ header }: ResizableHeaderContext) 
       'aria-valuenow': header.column.getSize(),
       class: [
         'absolute -inset-y-3.5 -right-6 z-10 w-4 cursor-col-resize touch-none select-none outline-none',
-        'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-accented after:transition-colors',
+        'after:absolute after:inset-y-2 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-(--ui-border-accented) after:transition-colors',
         'hover:after:bg-primary focus-visible:after:w-0.5 focus-visible:after:bg-primary',
         'data-[resizing=true]:after:w-0.5 data-[resizing=true]:after:bg-primary',
       ],
@@ -508,6 +508,11 @@ const statusTextClass: Record<TorrentStatus, string> = {
   checking: 'text-primary',
   stalled: 'text-warning',
   error: 'text-error',
+}
+
+const torrentNameTextClass: Record<TorrentStatus, string> = {
+  ...statusTextClass,
+  paused: 'text-(--cloudburst-paused-name)',
 }
 
 const columns: TableColumn<Torrent>[] = [
@@ -552,12 +557,13 @@ const columns: TableColumn<Torrent>[] = [
     meta: resizableColumnMeta,
     cell: ({ row }) => {
       const statusText = statusTextClass[row.original.status]
+      const nameText = torrentNameTextClass[row.original.status]
       const detailsOpen = props.openTorrentId === row.original.id
 
       return h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
         h(UIcon, { name: statusIcon[row.original.status], class: `size-4 shrink-0 ${statusText}` }),
         h('div', { class: 'min-w-0 flex-1' }, [
-          h('p', { class: `truncate font-medium ${statusText}` }, row.original.name),
+          h('p', { class: `truncate font-medium ${nameText}` }, row.original.name),
           h('p', { class: 'truncate text-xs text-muted' }, `${row.original.category || 'Uncategorized'} · ${formatBytes(row.original.size)}`),
         ]),
         h(UButton, {

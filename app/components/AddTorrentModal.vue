@@ -300,7 +300,7 @@ defineExpose({ openWith, close })
               @click="chooseFiles"
             />
             <ul v-if="chosenFiles.length" class="space-y-1">
-              <li v-for="chosen in chosenFiles" :key="chosen.name" class="flex items-center justify-between gap-2 rounded-md bg-elevated/50 px-2.5 py-1.5 text-sm">
+              <li v-for="chosen in chosenFiles" :key="chosen.name" class="flex items-center justify-between gap-2 rounded-md bg-elevated px-2.5 py-1.5 text-sm">
                 <span class="min-w-0 flex-1 truncate">{{ chosen.name }}</span>
                 <span class="shrink-0 font-mono text-xs text-muted">{{ formatBytes(chosen.size) }}</span>
                 <UButton

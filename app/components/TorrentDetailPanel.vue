@@ -261,7 +261,7 @@ const onTagsChange = async (value: string[]) => {
     <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
       <template v-if="activeDetailTab === 'overview'">
         <section class="space-y-3">
-        <div class="rounded-xl border border-default bg-elevated/40 p-4 shadow-sm">
+        <div class="rounded-xl border border-default bg-(--cloudburst-detail-surface) p-4 shadow-sm">
           <div class="mb-3 flex items-start justify-between gap-3">
             <div>
               <div class="flex items-center gap-2">
@@ -298,7 +298,7 @@ const onTagsChange = async (value: string[]) => {
           <div
             v-for="stat in transferStats"
             :key="stat.label"
-            class="min-w-0 rounded-lg border border-default bg-elevated/25 px-3 py-2.5"
+            class="min-w-0 rounded-lg border border-default bg-(--cloudburst-detail-surface) px-3 py-2.5"
           >
             <dt class="flex items-center gap-1.5 text-xs text-muted">
               <UIcon :name="stat.icon" class="size-3.5" :class="stat.tone" />
@@ -314,7 +314,7 @@ const onTagsChange = async (value: string[]) => {
           <UIcon name="i-lucide-activity" class="size-4 text-muted" />
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Activity</h3>
         </div>
-        <dl class="grid grid-cols-2 overflow-hidden rounded-lg border border-default">
+        <dl class="grid grid-cols-2 overflow-hidden rounded-lg border border-default bg-(--cloudburst-detail-surface)">
           <div
             v-for="stat in detailStats"
             :key="stat.label"
@@ -334,7 +334,7 @@ const onTagsChange = async (value: string[]) => {
           <UIcon name="i-lucide-info" class="size-4 text-muted" />
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Details</h3>
         </div>
-        <dl class="overflow-hidden rounded-lg border border-default bg-elevated/20 text-sm">
+        <dl class="overflow-hidden rounded-lg border border-default bg-(--cloudburst-detail-surface) text-sm">
           <div class="flex items-center gap-3 border-b border-default px-3 py-2.5">
             <UIcon name="i-lucide-calendar-plus" class="size-4 shrink-0 text-muted" />
             <dt class="w-20 shrink-0 text-muted">Added</dt>
@@ -428,7 +428,7 @@ const onTagsChange = async (value: string[]) => {
           <li
             v-for="tracker in trackersVisible"
             :key="`${tracker.tier}:${tracker.url}`"
-            class="rounded-lg border border-default bg-elevated/25 px-3 py-2"
+            class="rounded-lg border border-default bg-(--cloudburst-detail-surface) px-3 py-2"
           >
             <div class="flex items-center gap-2.5">
               <span class="size-2 shrink-0 rounded-full" :class="trackerStatusMeta(tracker.status).tone" />

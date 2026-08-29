@@ -7,7 +7,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const appearanceOptions = computed(() => [
   {
-    label: 'Off',
+    label: 'Flat',
     value: 'off' as const,
     icon: 'i-lucide-square',
   },
@@ -26,7 +26,7 @@ const appearanceOptions = computed(() => [
 ])
 
 const appearanceDescriptions: Record<AppearanceMode, string> = {
-  off: 'Use Cloudburst\'s standard, fully opaque app colors.',
+  off: 'Use Cloudburst\'s solid app colors without a window material.',
   toned: 'Keep the standard colors with a subtle hint of the desktop material.',
   mica: 'Let the Windows desktop material show clearly through the app.',
 }
@@ -38,7 +38,7 @@ const appearanceDescriptions: Record<AppearanceMode, string> = {
       <div class="space-y-3">
         <section class="space-y-2">
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Appearance</h3>
-          <div class="space-y-2.5 rounded-lg border border-default bg-elevated/25 p-3">
+          <div class="space-y-2.5 rounded-lg border border-default bg-elevated p-3">
             <div>
               <p class="text-sm font-medium text-highlighted">Window material</p>
               <p class="mt-0.5 text-xs text-muted">

@@ -691,7 +691,7 @@ onBeforeUnmount(() => {
           <div
             v-for="saved in savedProfiles"
             :key="saved.id"
-            class="flex items-center gap-3 rounded-lg border border-default bg-elevated/25 px-3 py-2.5"
+            class="flex items-center gap-3 rounded-lg border border-default bg-elevated px-3 py-2.5"
           >
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium text-highlighted">{{ saved.endpoint }}</p>

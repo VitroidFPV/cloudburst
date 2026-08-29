@@ -6,21 +6,29 @@
 }
 
 :root {
+  --cloudburst-detail-surface: transparent;
+  --cloudburst-paused-name: var(--ui-text-dimmed);
   --cloudburst-window-bg: 255 255 255;
+  --cloudburst-progress-track: rgb(0 0 0 / 0.14);
   --ui-primary: #000;
 }
 
 .dark {
   --cloudburst-window-bg: 16 16 18;
   --cloudburst-bg-dark: rgb(var(--cloudburst-window-bg));
-  --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--ui-color-neutral-950) 30%, var(--ui-color-neutral-900));
-  --cloudburst-bg-dark-accented: color-mix(in oklab, var(--ui-color-neutral-900) 80%, var(--ui-color-neutral-800));
+  --cloudburst-bg-dark-muted: color-mix(in oklab, var(--cloudburst-bg-dark) 95%, white);
+  --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--cloudburst-bg-dark) 92%, white);
+  --cloudburst-bg-dark-accented: color-mix(in oklab, var(--cloudburst-bg-dark) 88%, white);
+  --cloudburst-progress-track: rgb(255 255 255 / 0.16);
   --ui-primary: #fff;
   --ui-text-inverted: var(--cloudburst-bg-dark);
   --ui-bg: var(--cloudburst-bg-dark);
-  --ui-bg-muted: var(--cloudburst-bg-dark-elevated);
-  --ui-bg-elevated: var(--cloudburst-bg-dark-elevated);
-  --ui-bg-accented: var(--cloudburst-bg-dark-accented);
+  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark) 98%, white);
+  --ui-bg-elevated: color-mix(in oklab, var(--cloudburst-bg-dark) 97%, white);
+  --ui-bg-accented: color-mix(in oklab, var(--cloudburst-bg-dark) 94%, white);
+  --ui-border: rgb(255 255 255 / 0.09);
+  --ui-border-muted: rgb(255 255 255 / 0.06);
+  --ui-border-accented: rgb(255 255 255 / 0.14);
 }
 
 /* The desktop shell always provides Mica behind the webview. Off covers it with
@@ -35,7 +43,7 @@ html.appearance-mica body {
 
 html.appearance-toned.dark #__nuxt {
   --ui-bg: color-mix(in oklab, var(--cloudburst-bg-dark) 88%, transparent);
-  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 90%, transparent);
+  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark-muted) 90%, transparent);
   --ui-bg-elevated: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 92%, transparent);
   --ui-bg-accented: color-mix(in oklab, var(--cloudburst-bg-dark-accented) 94%, transparent);
 }
@@ -49,9 +57,9 @@ html.appearance-toned:not(.dark) #__nuxt {
 
 html.appearance-mica.dark #__nuxt {
   --ui-bg: transparent;
-  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 58%, transparent);
-  --ui-bg-elevated: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 64%, transparent);
-  --ui-bg-accented: color-mix(in oklab, var(--cloudburst-bg-dark-accented) 72%, transparent);
+  --ui-bg-muted: rgb(255 255 255 / 0.03);
+  --ui-bg-elevated: rgb(255 255 255 / 0.05);
+  --ui-bg-accented: rgb(255 255 255 / 0.08);
 }
 
 html.appearance-mica:not(.dark) #__nuxt {
@@ -59,6 +67,15 @@ html.appearance-mica:not(.dark) #__nuxt {
   --ui-bg-muted: color-mix(in oklab, var(--ui-color-neutral-50) 74%, transparent);
   --ui-bg-elevated: color-mix(in oklab, var(--ui-color-neutral-100) 80%, transparent);
   --ui-bg-accented: color-mix(in oklab, var(--ui-color-neutral-200) 86%, transparent);
+}
+
+html.appearance-toned #__nuxt,
+html.appearance-mica #__nuxt {
+  --cloudburst-detail-surface: var(--ui-bg-elevated);
+}
+
+html.appearance-mica #__nuxt {
+  --cloudburst-paused-name: var(--ui-text-toned);
 }
 
 html {

@@ -163,6 +163,16 @@ describe('TorrentTable', () => {
     expect(wrapper.text()).toContain('2 of 3')
   })
 
+  it('keeps paused torrent names readable while leaving their status icon subdued', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [{ ...torrent, status: 'paused' }] },
+    })
+    const torrentName = wrapper.findAll('p').find(node => node.text() === torrent.name)
+
+    expect(torrentName?.classes()).toContain('text-(--cloudburst-paused-name)')
+    expect(torrentName?.classes()).not.toContain('text-dimmed')
+  })
+
   it('exposes explicit pointer and keyboard detail actions', async () => {
     const wrapper = await mountSuspended(TorrentTable, { props: { torrents: [torrent] } })
 
