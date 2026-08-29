@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
 <template>
   <div @dragover.prevent @dragenter.prevent="onDragEnter" @dragleave.prevent="onDragLeave" @drop.prevent="onDrop">
     <UDashboardGroup unit="rem" class="h-screen">
-    <UDashboardSidebar id="cloudburst-sidebar" class="bg-elevated/25">
+    <UDashboardSidebar id="cloudburst-sidebar">
       <template #header>
         <div class="flex items-center gap-2 px-1">
           <UIcon name="i-lucide-cloud-rain" class="size-5 text-primary" />

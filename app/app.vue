@@ -1,8 +1,8 @@
 <script setup lang="ts">
-const { loadMicaSetting } = useMicaSetting()
+const { loadAppearanceSetting } = useAppearanceSetting()
 
 onMounted(() => {
-  loadMicaSetting()
+  loadAppearanceSetting()
 })
 </script>
 

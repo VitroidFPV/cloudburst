@@ -1,7 +1,35 @@
 <script setup lang="ts">
-const { micaEnabled, canUseMica, setMicaEnabled } = useMicaSetting()
+import type { AppearanceMode } from '~/composables/useAppearanceSetting'
+
+const { appearanceMode, canUseWindowMaterials, setAppearanceMode } = useAppearanceSetting()
 
 const open = defineModel<boolean>('open', { default: false })
+
+const appearanceOptions = computed(() => [
+  {
+    label: 'Off',
+    value: 'off' as const,
+    icon: 'i-lucide-square',
+  },
+  {
+    label: 'Toned',
+    value: 'toned' as const,
+    icon: 'i-lucide-blend',
+    disabled: !canUseWindowMaterials,
+  },
+  {
+    label: 'Mica',
+    value: 'mica' as const,
+    icon: 'i-lucide-sparkles',
+    disabled: !canUseWindowMaterials,
+  },
+])
+
+const appearanceDescriptions: Record<AppearanceMode, string> = {
+  off: 'Use Cloudburst\'s standard, fully opaque app colors.',
+  toned: 'Keep the standard colors with a subtle hint of the desktop material.',
+  mica: 'Let the Windows desktop material show clearly through the app.',
+}
 </script>
 
 <template>
@@ -10,18 +38,23 @@ const open = defineModel<boolean>('open', { default: false })
       <div class="space-y-3">
         <section class="space-y-2">
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Appearance</h3>
-          <div class="flex items-center justify-between gap-4 rounded-lg border border-default bg-elevated/25 px-3 py-3">
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-highlighted">Mica window material</p>
+          <div class="space-y-2.5 rounded-lg border border-default bg-elevated/25 p-3">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Window material</p>
               <p class="mt-0.5 text-xs text-muted">
-                {{ canUseMica ? 'Let the Windows desktop material show through app surfaces.' : 'Available in the Windows desktop app.' }}
+                {{ canUseWindowMaterials ? appearanceDescriptions[appearanceMode] : 'Toned and Mica are available in the Windows desktop app.' }}
               </p>
             </div>
-            <USwitch
-              :model-value="micaEnabled"
-              :disabled="!canUseMica"
-              aria-label="Mica window material"
-              @update:model-value="setMicaEnabled"
+            <URadioGroup
+              :model-value="appearanceMode"
+              :items="appearanceOptions"
+              variant="table"
+              orientation="horizontal"
+              indicator="hidden"
+              size="sm"
+              aria-label="Window material"
+              :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
+              @update:model-value="setAppearanceMode"
             />
           </div>
         </section>

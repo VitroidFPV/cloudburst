@@ -6,11 +6,13 @@
 }
 
 :root {
+  --cloudburst-window-bg: 255 255 255;
   --ui-primary: #000;
 }
 
 .dark {
-  --cloudburst-bg-dark: color-mix(in oklab, var(--ui-color-neutral-950) 52%, var(--ui-color-neutral-900));
+  --cloudburst-window-bg: 16 16 18;
+  --cloudburst-bg-dark: rgb(var(--cloudburst-window-bg));
   --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--ui-color-neutral-950) 30%, var(--ui-color-neutral-900));
   --cloudburst-bg-dark-accented: color-mix(in oklab, var(--ui-color-neutral-900) 80%, var(--ui-color-neutral-800));
   --ui-primary: #fff;
@@ -21,28 +23,50 @@
   --ui-bg-accented: var(--cloudburst-bg-dark-accented);
 }
 
-/* Mica supplies the window material: app surfaces inside the root become
-   translucent tints over it, while portaled overlays (menus, dialogs, toasts)
-   keep the opaque theme backgrounds above so they stay readable. */
-html.mica,
-html.mica body {
+/* The desktop shell always provides Mica behind the webview. Off covers it with
+   the standard theme; toned and Mica expose it through one consistent root
+   surface. Portaled overlays retain the opaque theme tokens from <html>. */
+html.appearance-toned,
+html.appearance-toned body,
+html.appearance-mica,
+html.appearance-mica body {
   background: transparent;
 }
 
-html.mica.dark #__nuxt {
-  --cloudburst-bg-dark: color-mix(in oklab, var(--ui-color-neutral-950) 38%, transparent);
-  --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--ui-color-neutral-950) 26%, transparent);
-  --cloudburst-bg-dark-accented: color-mix(in oklab, var(--ui-color-neutral-900) 55%, transparent);
+html.appearance-toned.dark #__nuxt {
+  --ui-bg: color-mix(in oklab, var(--cloudburst-bg-dark) 88%, transparent);
+  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 90%, transparent);
+  --ui-bg-elevated: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 92%, transparent);
+  --ui-bg-accented: color-mix(in oklab, var(--cloudburst-bg-dark-accented) 94%, transparent);
 }
 
-html.mica:not(.dark) #__nuxt {
-  --ui-bg: color-mix(in oklab, #fff 62%, transparent);
-  --ui-bg-muted: color-mix(in oklab, var(--ui-color-neutral-50) 68%, transparent);
-  --ui-bg-elevated: color-mix(in oklab, var(--ui-color-neutral-100) 74%, transparent);
-  --ui-bg-accented: color-mix(in oklab, var(--ui-color-neutral-200) 78%, transparent);
+html.appearance-toned:not(.dark) #__nuxt {
+  --ui-bg: color-mix(in oklab, #fff 90%, transparent);
+  --ui-bg-muted: color-mix(in oklab, var(--ui-color-neutral-50) 92%, transparent);
+  --ui-bg-elevated: color-mix(in oklab, var(--ui-color-neutral-100) 94%, transparent);
+  --ui-bg-accented: color-mix(in oklab, var(--ui-color-neutral-200) 96%, transparent);
+}
+
+html.appearance-mica.dark #__nuxt {
+  --ui-bg: transparent;
+  --ui-bg-muted: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 58%, transparent);
+  --ui-bg-elevated: color-mix(in oklab, var(--cloudburst-bg-dark-elevated) 64%, transparent);
+  --ui-bg-accented: color-mix(in oklab, var(--cloudburst-bg-dark-accented) 72%, transparent);
+}
+
+html.appearance-mica:not(.dark) #__nuxt {
+  --ui-bg: transparent;
+  --ui-bg-muted: color-mix(in oklab, var(--ui-color-neutral-50) 74%, transparent);
+  --ui-bg-elevated: color-mix(in oklab, var(--ui-color-neutral-100) 80%, transparent);
+  --ui-bg-accented: color-mix(in oklab, var(--ui-color-neutral-200) 86%, transparent);
 }
 
 html {
+  background: var(--ui-bg);
+}
+
+#__nuxt {
+  min-height: 100vh;
   background: var(--ui-bg);
 }
 

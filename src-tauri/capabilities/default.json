@@ -7,6 +7,8 @@
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-set-background-color",
+    "core:window:allow-set-effects",
     "deep-link:default",
     "dialog:allow-open"
   ]
