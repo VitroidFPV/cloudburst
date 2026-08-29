@@ -35,9 +35,15 @@ export interface ConnectionInput {
 }
 
 export interface ConnectionProfile {
+  id: string
   endpoint: string
   authenticationMode: AuthenticationMode
   username?: string
+}
+
+export interface ConnectionProfileList {
+  profiles: ConnectionProfile[]
+  activeId: string | null
 }
 
 export interface ConnectionSnapshot {
@@ -46,8 +52,9 @@ export interface ConnectionSnapshot {
   torrents: Torrent[]
 }
 
-export interface RestoreOutcome {
-  profile: ConnectionProfile | null
+export interface ResolveOutcome {
+  profiles: ConnectionProfile[]
+  activeProfileId: string | null
   snapshot: ConnectionSnapshot | null
   error: string | null
 }

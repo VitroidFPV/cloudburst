@@ -2,7 +2,7 @@ import { clearNuxtState } from '#app'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { CONNECTION_POLL_INTERVAL_MS, CONNECTION_RETRY_DELAYS_MS, useTorrentLibrary } from '~/composables/useTorrentLibrary'
-import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, Torrent } from '~/types/torrent'
+import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ResolveOutcome, Torrent } from '~/types/torrent'
 
 const connectionInput: ConnectionInput = {
   endpoint: 'http://localhost:8080',
@@ -11,7 +11,14 @@ const connectionInput: ConnectionInput = {
 }
 
 const profile: ConnectionProfile = {
+  id: 'http://localhost:8080|ApiKey|',
   endpoint: 'http://localhost:8080',
+  authenticationMode: 'apiKey',
+}
+
+const remoteProfile: ConnectionProfile = {
+  id: 'http://nas.lan:8080|ApiKey|',
+  endpoint: 'http://nas.lan:8080',
   authenticationMode: 'apiKey',
 }
 
@@ -40,13 +47,27 @@ const snapshot: ConnectionSnapshot = {
   torrents: [torrent],
 }
 
+const remoteSnapshot: ConnectionSnapshot = {
+  endpoint: remoteProfile.endpoint,
+  version: '5.2.1',
+  torrents: [torrent],
+}
+
+const profileList = (profiles: ConnectionProfile[], activeId: string | null = null): ConnectionProfileList => ({
+  profiles,
+  activeId,
+})
+
 const unexpected = async (): Promise<never> => {
   throw new Error('Unexpected adapter call')
 }
 
 const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): QbittorrentAdapter => ({
   connect: unexpected,
-  restore: unexpected,
+  resolve: unexpected,
+  connectSaved: unexpected,
+  removeProfile: unexpected,
+  listProfiles: async () => profileList([profile], profile.id),
   refresh: unexpected,
   setTorrentPaused: unexpected,
   removeTorrents: unexpected,
@@ -84,7 +105,7 @@ describe('useTorrentLibrary connection lifecycle', () => {
     vi.useRealTimers()
   })
 
-  it('ignores a refresh result superseded by forgetting the connection', async () => {
+  it('ignores a refresh result superseded by going offline', async () => {
     const pendingRefresh = deferred<ConnectionSnapshot>()
     const adapter = createAdapter({
       connect: async () => snapshot,
@@ -102,8 +123,23 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(await refreshResult).toBe(false)
     expect(library.connectionStatus.value).toBe('disconnected')
     expect(library.torrents.value).toEqual([])
-    expect(library.savedProfile.value).toBeNull()
+    expect(library.savedProfile.value).toEqual(profile)
     expect(library.refreshing.value).toBe(false)
+  })
+
+  it('keeps the saved profiles available for resolution after going offline', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      resolve: async () => ({ profiles: [profile], activeProfileId: profile.id, snapshot, error: null }),
+    }))
+
+    await library.connect(connectionInput)
+    expect(await library.disconnect()).toBe(true)
+    expect(library.savedProfiles.value).toEqual([profile])
+
+    expect(await library.resolveConnection()).toBe(true)
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.torrents.value).toEqual([torrent])
   })
 
   it('retains the last snapshot as stale after a refresh failure', async () => {
@@ -260,26 +296,27 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.defaultSavePath.value).toBe('C:/Downloads')
   })
 
-  it('retries a saved profile with backoff and returns to normal polling after recovery', async () => {
+  it('retries saved profiles with backoff and returns to normal polling after recovery', async () => {
     vi.useFakeTimers()
-    const restore = vi.fn()
-      .mockResolvedValueOnce({ profile, snapshot: null, error: 'Not reachable' })
-      .mockResolvedValueOnce({ profile, snapshot: null, error: 'Still unavailable' })
-      .mockResolvedValueOnce({ profile, snapshot, error: null })
+    const failedOutcome: ResolveOutcome = { profiles: [profile], activeProfileId: profile.id, snapshot: null, error: 'Not reachable' }
+    const resolve = vi.fn()
+      .mockResolvedValueOnce(failedOutcome)
+      .mockResolvedValueOnce({ ...failedOutcome, error: 'Still unavailable' })
+      .mockResolvedValueOnce({ profiles: [profile], activeProfileId: profile.id, snapshot, error: null })
     const refresh = vi.fn().mockResolvedValue(snapshot)
-    const library = useTorrentLibrary(createAdapter({ restore, refresh }))
+    const library = useTorrentLibrary(createAdapter({ resolve, refresh }))
 
-    expect(await library.restoreSavedConnection()).toBe(false)
+    expect(await library.resolveConnection()).toBe(false)
     const stop = library.startAutoRefresh()
 
     await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
-    expect(restore).toHaveBeenCalledTimes(2)
+    expect(resolve).toHaveBeenCalledTimes(2)
     expect(library.connectionStatus.value).toBe('disconnected')
 
     await vi.advanceTimersByTimeAsync(CONNECTION_RETRY_DELAYS_MS[0] - 1)
-    expect(restore).toHaveBeenCalledTimes(2)
+    expect(resolve).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1)
-    expect(restore).toHaveBeenCalledTimes(3)
+    expect(resolve).toHaveBeenCalledTimes(3)
     expect(library.connectionStatus.value).toBe('connected')
 
     await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
@@ -290,24 +327,104 @@ describe('useTorrentLibrary connection lifecycle', () => {
 
   it('caps repeated reconnect attempts at the longest retry delay', async () => {
     vi.useFakeTimers()
-    const restore = vi.fn().mockResolvedValue({ profile, snapshot: null, error: 'Not reachable' })
-    const library = useTorrentLibrary(createAdapter({ restore }))
+    const resolve = vi.fn().mockResolvedValue({ profiles: [profile], activeProfileId: profile.id, snapshot: null, error: 'Not reachable' })
+    const library = useTorrentLibrary(createAdapter({ resolve }))
 
-    await library.restoreSavedConnection()
+    await library.resolveConnection()
     const stop = library.startAutoRefresh()
     await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
 
     for (const [index, delay] of CONNECTION_RETRY_DELAYS_MS.entries()) {
       await vi.advanceTimersByTimeAsync(delay)
-      expect(restore).toHaveBeenCalledTimes(index + 3)
+      expect(resolve).toHaveBeenCalledTimes(index + 3)
     }
 
     const maximumDelay = CONNECTION_RETRY_DELAYS_MS.at(-1)!
     await vi.advanceTimersByTimeAsync(maximumDelay - 1)
-    expect(restore).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 2)
+    expect(resolve).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 2)
     await vi.advanceTimersByTimeAsync(1)
-    expect(restore).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 3)
+    expect(resolve).toHaveBeenCalledTimes(CONNECTION_RETRY_DELAYS_MS.length + 3)
 
     stop()
+  })
+
+  it('resolves the retained profiles and adopts the reachable one', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      profiles: [profile, remoteProfile],
+      activeProfileId: remoteProfile.id,
+      snapshot: remoteSnapshot,
+      error: null,
+    })
+    const library = useTorrentLibrary(createAdapter({ resolve }))
+
+    expect(await library.resolveConnection()).toBe(true)
+    expect(library.savedProfiles.value).toEqual([profile, remoteProfile])
+    expect(library.savedProfile.value).toEqual(remoteProfile)
+    expect(library.connectionEndpoint.value).toBe(remoteProfile.endpoint)
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.torrents.value).toEqual([torrent])
+  })
+
+  it('keeps the retained profiles visible when nothing is reachable', async () => {
+    const resolve = vi.fn().mockResolvedValue({
+      profiles: [profile, remoteProfile],
+      activeProfileId: profile.id,
+      snapshot: null,
+      error: 'qBittorrent is unavailable',
+    })
+    const library = useTorrentLibrary(createAdapter({
+      resolve,
+      listProfiles: async () => profileList([profile, remoteProfile], profile.id),
+    }))
+
+    expect(await library.resolveConnection()).toBe(false)
+    expect(library.savedProfiles.value).toEqual([profile, remoteProfile])
+    expect(library.savedProfile.value).toEqual(profile)
+    expect(library.connectionStatus.value).toBe('disconnected')
+    expect(library.connectionError.value).toBe('qBittorrent is unavailable')
+  })
+
+  it('switches the active connection to a retained profile', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connectSaved: async () => remoteSnapshot,
+      listProfiles: async () => profileList([profile, remoteProfile], remoteProfile.id),
+    }))
+
+    expect(await library.connectProfile(remoteProfile.id)).toBe(true)
+    expect(library.savedProfile.value).toEqual(remoteProfile)
+    expect(library.connectionEndpoint.value).toBe(remoteProfile.endpoint)
+    expect(library.connectionStatus.value).toBe('connected')
+  })
+
+  it('forgets one profile without touching the retained others', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      listProfiles: async () => profileList([profile, remoteProfile], profile.id),
+      removeProfile: async () => profileList([remoteProfile], null),
+    }))
+
+    await library.connect(connectionInput)
+    expect(await library.forgetProfile(profile.id)).toBe(true)
+
+    expect(library.savedProfiles.value).toEqual([remoteProfile])
+    expect(library.savedProfile.value).toBeNull()
+    expect(library.connectionStatus.value).toBe('disconnected')
+    expect(library.torrents.value).toEqual([])
+  })
+
+  it('keeps the connection when forgetting a non-active profile', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      listProfiles: async () => profileList([profile, remoteProfile], profile.id),
+      removeProfile: async () => profileList([profile], profile.id),
+    }))
+
+    await library.connect(connectionInput)
+    expect(await library.forgetProfile(remoteProfile.id)).toBe(true)
+
+    expect(library.savedProfiles.value).toEqual([profile])
+    expect(library.savedProfile.value).toEqual(profile)
+    expect(library.connectionStatus.value).toBe('connected')
+    expect(library.torrents.value).toEqual([torrent])
   })
 })

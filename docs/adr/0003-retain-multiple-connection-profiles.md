@@ -1,0 +1,5 @@
+# Retain multiple connection profiles and resolve the active one
+
+Cloudburst retains every qBittorrent connection profile the user has connected with, and treats exactly one of them as the active connection profile — the one whose torrents are shown. Profiles are identified by what they describe (endpoint, authentication mode, username), so reconnecting an identical connection updates the retained profile instead of duplicating it. Each profile's credential is protected separately in the operating system vault, keyed by profile identity; the profile store itself stays secret-free.
+
+Profiles live in one `connection-profiles.json` store recording the retained profiles and the id of the last connected one. At startup Cloudburst performs connection resolution: it attempts the last active profile first, then the remaining profiles in saved order, and connects the first reachable instance. When nothing is reachable the retained profiles stay visible and stale torrents are kept. Going offline (disconnect) keeps every profile; forgetting a profile removes only that profile and its protected credential.

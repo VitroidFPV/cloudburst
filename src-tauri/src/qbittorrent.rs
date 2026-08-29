@@ -1,4 +1,4 @@
-use crate::connection_profile::{self, AuthenticationMode, ConnectionProfile, StoredConnection};
+use crate::connection_profile::{self, AuthenticationMode, ConnectionProfile, ConnectionProfileStore};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::{
     multipart::{Form, Part},
@@ -56,10 +56,27 @@ pub struct ConnectionSnapshot {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RestoreOutcome {
-    profile: Option<ConnectionProfile>,
+pub struct ResolveOutcome {
+    profiles: Vec<ConnectionProfile>,
+    active_profile_id: Option<String>,
     snapshot: Option<ConnectionSnapshot>,
     error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionProfileList {
+    profiles: Vec<ConnectionProfile>,
+    active_id: Option<String>,
+}
+
+impl From<&ConnectionProfileStore> for ConnectionProfileList {
+    fn from(store: &ConnectionProfileStore) -> Self {
+        Self {
+            profiles: store.profiles.clone(),
+            active_id: store.active_id.clone(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -391,7 +408,13 @@ pub async fn connect_qbittorrent(
     let (active, snapshot) = establish_connection(input)
         .await
         .map_err(|error| error.to_string())?;
-    connection_profile::save(&app, profile, secret).await?;
+
+    let mut store = connection_profile::load_store(&app).await?;
+    store.upsert(profile.clone());
+    connection_profile::persist_store(&app, &store).await?;
+    if !secret.is_empty() {
+        connection_profile::write_credential(&profile.id, secret).await?;
+    }
 
     *active_connection = Some(active);
 
@@ -399,47 +422,113 @@ pub async fn connect_qbittorrent(
 }
 
 #[tauri::command]
-pub async fn restore_saved_qbittorrent(
+pub async fn resolve_connection(
     manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
-) -> Result<RestoreOutcome, String> {
+) -> Result<ResolveOutcome, String> {
     let mut active_connection = manager.active.lock().await;
-    let stored = match connection_profile::load(&app).await {
-        Ok(Some(stored)) => stored,
-        Ok(None) => {
-            return Ok(RestoreOutcome {
-                profile: None,
-                snapshot: None,
-                error: None,
-            });
-        }
-        Err(error) => {
-            return Ok(RestoreOutcome {
-                profile: None,
-                snapshot: None,
-                error: Some(error),
-            });
-        }
-    };
-    let profile = stored.profile.clone();
+    let store = connection_profile::load_store(&app).await?;
 
-    Ok(
-        match establish_connection(ConnectionInput::from(stored)).await {
+    let mut last_error: Option<String> = None;
+    for profile in store.resolution_order() {
+        let secret = match connection_profile::read_credential(&profile.id).await {
+            Ok(Some(secret)) => secret,
+            Ok(None) => {
+                last_error = Some(missing_credential_message(profile.authentication_mode));
+                continue;
+            }
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+
+        let input = connection_input(&profile, secret);
+        match establish_connection(input).await {
             Ok((active, snapshot)) => {
+                let mut updated = store.clone();
+                updated.active_id = Some(profile.id.clone());
+                connection_profile::persist_store(&app, &updated).await?;
                 *active_connection = Some(active);
-                RestoreOutcome {
-                    profile: Some(profile),
+
+                return Ok(ResolveOutcome {
+                    profiles: updated.profiles,
+                    active_profile_id: Some(profile.id),
                     snapshot: Some(snapshot),
                     error: None,
-                }
+                });
             }
-            Err(error) => RestoreOutcome {
-                profile: Some(profile),
-                snapshot: None,
-                error: Some(error.to_string()),
-            },
-        },
-    )
+            Err(error) => last_error = Some(error.to_string()),
+        }
+    }
+
+    Ok(ResolveOutcome {
+        profiles: store.profiles,
+        active_profile_id: store.active_id,
+        snapshot: None,
+        error: last_error,
+    })
+}
+
+#[tauri::command]
+pub async fn connect_saved_qbittorrent(
+    id: String,
+    manager: State<'_, ConnectionManager>,
+    app: tauri::AppHandle,
+) -> Result<ConnectionSnapshot, String> {
+    let mut active_connection = manager.active.lock().await;
+    let store = connection_profile::load_store(&app).await?;
+    let profile = store
+        .profiles
+        .iter()
+        .find(|profile| profile.id == id)
+        .cloned()
+        .ok_or_else(|| "That qBittorrent connection profile no longer exists.".to_string())?;
+    let secret = connection_profile::read_credential(&profile.id)
+        .await?
+        .ok_or_else(|| missing_credential_message(profile.authentication_mode))?;
+
+    let input = connection_input(&profile, secret);
+    let (active, snapshot) = establish_connection(input)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let mut updated = store;
+    updated.active_id = Some(profile.id.clone());
+    connection_profile::persist_store(&app, &updated).await?;
+    *active_connection = Some(active);
+
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub async fn remove_connection_profile(
+    id: String,
+    manager: State<'_, ConnectionManager>,
+    app: tauri::AppHandle,
+) -> Result<ConnectionProfileList, String> {
+    let mut active_connection = manager.active.lock().await;
+    let mut store = connection_profile::load_store(&app).await?;
+    let was_active = store.active_id.as_deref() == Some(id.as_str());
+
+    let credential_result = connection_profile::delete_credential(&id).await;
+    if store.remove(&id) {
+        connection_profile::persist_store(&app, &store).await?;
+        if was_active {
+            *active_connection = None;
+        }
+    }
+    credential_result?;
+
+    Ok(ConnectionProfileList::from(&store))
+}
+
+#[tauri::command]
+pub async fn list_connection_profiles(
+    app: tauri::AppHandle,
+) -> Result<ConnectionProfileList, String> {
+    let store = connection_profile::load_store(&app).await?;
+    Ok(ConnectionProfileList::from(&store))
 }
 
 #[tauri::command]
@@ -783,10 +872,8 @@ pub async fn fetch_tags(manager: State<'_, ConnectionManager>) -> Result<Vec<Str
 #[tauri::command]
 pub async fn disconnect_qbittorrent(
     manager: State<'_, ConnectionManager>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
     let mut active_connection = manager.active.lock().await;
-    connection_profile::clear(&app).await?;
     *active_connection = None;
     Ok(())
 }
@@ -808,18 +895,14 @@ async fn establish_connection(
 
 async fn resolve_connection_input(
     input: ConnectionInput,
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
 ) -> Result<(ConnectionInput, ConnectionProfile, String), String> {
     let profile = input.profile().map_err(|error| error.to_string())?;
     let supplied_secret = input.secret();
     let secret = if supplied_secret.is_empty() {
-        let stored = connection_profile::load(app)
+        connection_profile::read_credential(&profile.id)
             .await?
-            .ok_or_else(|| missing_credential_message(input.authentication_mode))?;
-        if stored.profile != profile {
-            return Err(missing_credential_message(input.authentication_mode));
-        }
-        stored.secret
+            .ok_or_else(|| missing_credential_message(input.authentication_mode))?
     } else {
         supplied_secret
     };
@@ -868,6 +951,11 @@ impl ConnectionInput {
         };
 
         Ok(ConnectionProfile {
+            id: ConnectionProfile::identity(
+                &endpoint,
+                self.authentication_mode,
+                username.as_deref(),
+            ),
             endpoint,
             authentication_mode: self.authentication_mode,
             username,
@@ -890,20 +978,18 @@ impl ConnectionInput {
     }
 }
 
-impl From<StoredConnection> for ConnectionInput {
-    fn from(stored: StoredConnection) -> Self {
-        let (api_key, password) = match stored.profile.authentication_mode {
-            AuthenticationMode::ApiKey => (Some(stored.secret), None),
-            AuthenticationMode::Credentials => (None, Some(stored.secret)),
-        };
+fn connection_input(profile: &ConnectionProfile, secret: String) -> ConnectionInput {
+    let (api_key, password) = match profile.authentication_mode {
+        AuthenticationMode::ApiKey => (Some(secret), None),
+        AuthenticationMode::Credentials => (None, Some(secret)),
+    };
 
-        Self {
-            endpoint: stored.profile.endpoint,
-            authentication_mode: stored.profile.authentication_mode,
-            api_key,
-            username: stored.profile.username,
-            password,
-        }
+    ConnectionInput {
+        endpoint: profile.endpoint.clone(),
+        authentication_mode: profile.authentication_mode,
+        api_key,
+        username: profile.username.clone(),
+        password,
     }
 }
 

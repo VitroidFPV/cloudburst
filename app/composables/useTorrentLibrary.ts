@@ -1,4 +1,4 @@
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionSnapshot, ConnectionStatus, MetadataFetch, RestoreOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
 import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
@@ -15,7 +15,9 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const connectionError = useState('connection-error', () => '')
   const connectionEndpoint = useState('connection-endpoint', () => '')
   const connectionVersion = useState('connection-version', () => '')
-  const savedProfile = useState<ConnectionProfile | null>('saved-connection-profile', () => null)
+  const savedProfiles = useState<ConnectionProfile[]>('saved-connection-profiles', () => [])
+  const activeProfileId = useState<string | null>('active-connection-profile-id', () => null)
+  const savedProfile = computed(() => savedProfiles.value.find(profile => profile.id === activeProfileId.value) ?? null)
   const stale = useState('connection-stale', () => false)
   const refreshing = useState('connection-refreshing', () => false)
   const activityUpdating = useState('torrent-activity-updating', () => false)
@@ -76,6 +78,11 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     return false
   }
 
+  const applyProfileList = (list: ConnectionProfileList) => {
+    savedProfiles.value = list.profiles
+    activeProfileId.value = list.activeId
+  }
+
   const connect = async (input: ConnectionInput) => {
     const operation = beginOperation()
     connectionStatus.value = 'connecting'
@@ -86,11 +93,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
       if (!isCurrentOperation(operation)) return false
 
       applySnapshot(snapshot)
-      savedProfile.value = {
-        endpoint: snapshot.endpoint,
-        authenticationMode: input.authenticationMode,
-        username: input.authenticationMode === 'credentials' ? input.username : undefined,
-      }
+      await refreshProfileList()
       return true
     }
     catch (error) {
@@ -98,7 +101,17 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
-  const restoreSavedConnection = async () => {
+  const refreshProfileList = async () => {
+    try {
+      applyProfileList(await adapter.listProfiles())
+    }
+    catch {
+      // The retained profiles are still usable; the list refreshes on the
+      // next connection action.
+    }
+  }
+
+  const resolveConnection = async () => {
     if (adapter === tauriQbittorrentAdapter && (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window))) return false
 
     const operation = beginOperation()
@@ -106,10 +119,11 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     connectionError.value = ''
 
     try {
-      const outcome: RestoreOutcome = await adapter.restore()
+      const outcome: ResolveOutcome = await adapter.resolve()
       if (!isCurrentOperation(operation)) return false
 
-      savedProfile.value = outcome.profile
+      savedProfiles.value = outcome.profiles
+      activeProfileId.value = outcome.activeProfileId
 
       if (outcome.snapshot) {
         applySnapshot(outcome.snapshot)
@@ -118,12 +132,60 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
       connectionStatus.value = 'disconnected'
       connectionError.value = outcome.error || ''
-      connectionEndpoint.value = outcome.profile?.endpoint || ''
+      connectionEndpoint.value = savedProfile.value?.endpoint || ''
       stale.value = torrents.value.length > 0
       return false
     }
     catch (error) {
       return applyFailure(operation, error)
+    }
+  }
+
+  const connectProfile = async (profileId: string) => {
+    const operation = beginOperation()
+    connectionStatus.value = 'connecting'
+    connectionError.value = ''
+
+    try {
+      const snapshot = await adapter.connectSaved(profileId)
+      if (!isCurrentOperation(operation)) return false
+
+      applySnapshot(snapshot)
+      await refreshProfileList()
+      return true
+    }
+    catch (error) {
+      return applyFailure(operation, error)
+    }
+  }
+
+  const forgetProfile = async (profileId: string) => {
+    const operation = beginOperation()
+    const wasActive = activeProfileId.value === profileId
+
+    try {
+      const list = await adapter.removeProfile(profileId)
+      if (!isCurrentOperation(operation)) return false
+
+      applyProfileList(list)
+
+      if (wasActive) {
+        torrents.value = []
+        connectionStatus.value = 'disconnected'
+        connectionError.value = ''
+        connectionEndpoint.value = ''
+        connectionVersion.value = ''
+        stale.value = false
+        torrentActionError.value = ''
+        defaultSavePath.value = ''
+      }
+
+      return true
+    }
+    catch (error) {
+      if (!isCurrentOperation(operation)) return false
+      connectionError.value = errorMessage(error)
+      return false
     }
   }
 
@@ -433,7 +495,6 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
       connectionError.value = ''
       connectionEndpoint.value = ''
       connectionVersion.value = ''
-      savedProfile.value = null
       stale.value = false
       torrentActionError.value = ''
       defaultSavePath.value = ''
@@ -446,8 +507,8 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
-  const retry = () => connectionStatus.value === 'disconnected' && savedProfile.value
-    ? restoreSavedConnection()
+  const retry = () => connectionStatus.value === 'disconnected' && savedProfiles.value.length
+    ? resolveConnection()
     : refresh()
 
   const startAutoRefresh = () => {
@@ -465,10 +526,10 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
       let successful: boolean | undefined
       if (connectionStatus.value === 'connected') successful = await refresh()
-      else if (savedProfile.value) successful = await restoreSavedConnection()
+      else if (savedProfiles.value.length) successful = await resolveConnection()
 
       if (stopped) return
-      if (successful === false && savedProfile.value) {
+      if (successful === false && savedProfiles.value.length) {
         const delay = CONNECTION_RETRY_DELAYS_MS[Math.min(retryIndex, CONNECTION_RETRY_DELAYS_MS.length - 1)]
         retryIndex = Math.min(retryIndex + 1, CONNECTION_RETRY_DELAYS_MS.length - 1)
         schedule(delay ?? CONNECTION_POLL_INTERVAL_MS)
@@ -509,13 +570,17 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     connectionError,
     connectionEndpoint,
     connectionVersion,
+    savedProfiles,
+    activeProfileId,
     savedProfile,
     stale,
     refreshing,
     activityUpdating,
     torrentActionError,
     connect,
-    restoreSavedConnection,
+    resolveConnection,
+    connectProfile,
+    forgetProfile,
     refresh,
     setTorrentsPaused,
     removeTorrents,

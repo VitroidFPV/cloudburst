@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, MagnetHandlerStatus } from '~/types/torrent'
+import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { isLoopbackEndpoint } from '~/utils/connection'
 import { formatSpeed } from '~/utils/torrent-format'
@@ -24,6 +24,8 @@ const {
   connectionError,
   connectionEndpoint,
   connectionVersion,
+  savedProfiles,
+  activeProfileId,
   savedProfile,
   stale,
   refreshing,
@@ -31,7 +33,9 @@ const {
   torrentActionError,
   defaultSavePath,
   connect,
-  restoreSavedConnection,
+  resolveConnection,
+  connectProfile,
+  forgetProfile,
   retry,
   startAutoRefresh,
   setTorrentsPaused,
@@ -45,7 +49,6 @@ const {
   removeTorrentTags,
   fetchCategories,
   fetchTags,
-  disconnect,
   chooseFilter,
   chooseCategory,
 } = useTorrentLibrary()
@@ -154,16 +157,50 @@ const canBrowseFolders = computed(() => typeof window !== 'undefined'
   && isLoopbackEndpoint(connectionEndpoint.value))
 
 const canReuseSavedCredential = computed(() => {
-  if (!savedProfile.value) return false
-
   const currentEndpoint = connectionForm.endpoint.replace(/\/+$/, '')
-  const sameUsername = authenticationMode.value !== 'credentials'
-    || savedProfile.value.username === connectionForm.username
 
-  return savedProfile.value.endpoint === currentEndpoint
-    && savedProfile.value.authenticationMode === authenticationMode.value
-    && sameUsername
+  return savedProfiles.value.some(profile =>
+    profile.endpoint === currentEndpoint
+    && profile.authenticationMode === authenticationMode.value
+    && (authenticationMode.value !== 'credentials' || profile.username === connectionForm.username))
 })
+
+const isConnectedTo = (profile: ConnectionProfile) =>
+  connectionStatus.value === 'connected' && activeProfileId.value === profile.id
+
+const connectingProfileId = ref<string | null>(null)
+
+const switchToProfile = async (profile: ConnectionProfile) => {
+  connectingProfileId.value = profile.id
+
+  if (await connectProfile(profile.id)) {
+    settingsOpen.value = false
+    toast.add({
+      title: 'qBittorrent connected',
+      description: `${torrents.value.length} torrent${torrents.value.length === 1 ? '' : 's'} loaded from ${connectionEndpoint.value}.`,
+      color: 'success',
+    })
+  }
+  else {
+    toast.add({
+      title: 'Could not connect to qBittorrent',
+      description: connectionError.value || 'That instance is unreachable right now.',
+      color: 'error',
+    })
+  }
+
+  connectingProfileId.value = null
+}
+
+const forgetSavedProfile = async (profile: ConnectionProfile) => {
+  if (await forgetProfile(profile.id)) {
+    toast.add({
+      title: 'Connection profile forgotten',
+      description: `${profile.endpoint} is no longer saved in Cloudburst.`,
+      color: 'neutral',
+    })
+  }
+}
 
 watch(savedProfile, (profile) => {
   if (!profile) return
@@ -213,9 +250,11 @@ const retryConnection = async () => {
 }
 
 const disconnectConnection = async () => {
-  if (await disconnect()) {
+  if (!savedProfile.value) return
+
+  if (await forgetProfile(savedProfile.value.id)) {
     settingsOpen.value = false
-    toast.add({ title: 'qBittorrent connection forgotten', description: 'The saved profile and protected credential were removed.', color: 'neutral' })
+    toast.add({ title: 'Connection profile forgotten', description: `${savedProfile.value.endpoint} is no longer saved in Cloudburst.`, color: 'neutral' })
   }
 }
 
@@ -414,7 +453,7 @@ watch(connectionStatus, (status) => {
 let stopAutoRefresh: (() => void) | undefined
 
 onMounted(() => {
-  void restoreSavedConnection()
+  void resolveConnection()
   stopAutoRefresh = startAutoRefresh()
   void listenForMagnetLinks()
   void checkMagnetHandler()
@@ -635,59 +674,97 @@ onBeforeUnmount(() => {
 
   <UModal v-model:open="settingsOpen" title="qBittorrent connection" description="Connect directly to the qBittorrent 5.2+ Web API.">
     <template #body>
-      <form id="qbittorrent-connection-form" class="space-y-5" @submit.prevent="submitConnection">
-        <UFormField label="WebUI URL" description="Use the URL configured in qBittorrent's WebUI preferences." required>
-          <UInput v-model="connectionForm.endpoint" class="w-full" placeholder="http://localhost:8080" autocomplete="url" />
-        </UFormField>
-
-        <UFormField label="Authentication">
-          <div class="grid grid-cols-2 gap-2">
+      <div class="space-y-5">
+        <div v-if="savedProfiles.length" class="space-y-2">
+          <p class="text-xs font-medium uppercase tracking-wide text-muted">Saved profiles</p>
+          <div
+            v-for="saved in savedProfiles"
+            :key="saved.id"
+            class="flex items-center gap-3 rounded-lg border border-default bg-elevated/25 px-3 py-2.5"
+          >
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-highlighted">{{ saved.endpoint }}</p>
+              <p class="text-xs text-muted">
+                {{ saved.authenticationMode === 'apiKey' ? 'API key' : 'Username & password' }}<span v-if="saved.username"> · {{ saved.username }}</span>
+              </p>
+            </div>
+            <UBadge v-if="isConnectedTo(saved)" label="Active" color="success" variant="subtle" size="sm" />
             <UButton
-              type="button"
-              label="API key"
-              icon="i-lucide-key-round"
-              :variant="authenticationMode === 'apiKey' ? 'solid' : 'outline'"
-              :color="authenticationMode === 'apiKey' ? 'primary' : 'neutral'"
-              block
-              @click="authenticationMode = 'apiKey'"
+              label="Connect"
+              color="primary"
+              variant="soft"
+              size="xs"
+              :disabled="connectionStatus === 'connecting'"
+              :loading="connectingProfileId === saved.id"
+              @click="switchToProfile(saved)"
             />
             <UButton
-              type="button"
-              label="Username & password"
-              icon="i-lucide-user-round"
-              :variant="authenticationMode === 'credentials' ? 'solid' : 'outline'"
-              :color="authenticationMode === 'credentials' ? 'primary' : 'neutral'"
-              block
-              @click="authenticationMode = 'credentials'"
+              icon="i-lucide-trash-2"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              aria-label="Forget this connection profile"
+              :title="`Forget ${saved.endpoint}`"
+              @click="forgetSavedProfile(saved)"
             />
           </div>
-        </UFormField>
-
-        <UFormField v-if="authenticationMode === 'apiKey'" label="API key" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected API key.' : 'Generate an API key in qBittorrent\'s WebUI preferences.'" :required="!canReuseSavedCredential">
-          <UInput v-model="connectionForm.apiKey" class="w-full" type="password" placeholder="qbt_…" autocomplete="off" />
-        </UFormField>
-
-        <div v-else class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Username" required>
-            <UInput v-model="connectionForm.username" class="w-full" autocomplete="username" />
-          </UFormField>
-          <UFormField label="Password" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected password.' : undefined" :required="!canReuseSavedCredential">
-            <UInput v-model="connectionForm.password" class="w-full" type="password" autocomplete="current-password" />
-          </UFormField>
         </div>
 
-        <div v-if="connectionError" class="flex items-start gap-2 rounded-md border border-error/30 bg-error/10 px-3 py-2.5 text-sm text-error">
-          <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
-          <span>{{ connectionError }}</span>
-        </div>
+        <form id="qbittorrent-connection-form" class="space-y-5" @submit.prevent="submitConnection">
+          <p v-if="savedProfiles.length" class="text-xs font-medium uppercase tracking-wide text-muted">Add a profile</p>
+          <UFormField label="WebUI URL" description="Use the URL configured in qBittorrent's WebUI preferences." required>
+            <UInput v-model="connectionForm.endpoint" class="w-full" placeholder="http://localhost:8080" autocomplete="url" />
+          </UFormField>
 
-        <p class="text-xs text-muted">The credential is saved in the operating system vault. The profile stores only the URL, authentication mode, and username.</p>
-      </form>
+          <UFormField label="Authentication">
+            <div class="grid grid-cols-2 gap-2">
+              <UButton
+                type="button"
+                label="API key"
+                icon="i-lucide-key-round"
+                :variant="authenticationMode === 'apiKey' ? 'solid' : 'outline'"
+                :color="authenticationMode === 'apiKey' ? 'primary' : 'neutral'"
+                block
+                @click="authenticationMode = 'apiKey'"
+              />
+              <UButton
+                type="button"
+                label="Username & password"
+                icon="i-lucide-user-round"
+                :variant="authenticationMode === 'credentials' ? 'solid' : 'outline'"
+                :color="authenticationMode === 'credentials' ? 'primary' : 'neutral'"
+                block
+                @click="authenticationMode = 'credentials'"
+              />
+            </div>
+          </UFormField>
+
+          <UFormField v-if="authenticationMode === 'apiKey'" label="API key" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected API key.' : 'Generate an API key in qBittorrent\'s WebUI preferences.'" :required="!canReuseSavedCredential">
+            <UInput v-model="connectionForm.apiKey" class="w-full" type="password" placeholder="qbt_…" autocomplete="off" />
+          </UFormField>
+
+          <div v-else class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Username" required>
+              <UInput v-model="connectionForm.username" class="w-full" autocomplete="username" />
+            </UFormField>
+            <UFormField label="Password" :description="canReuseSavedCredential ? 'Leave blank to reuse the protected password.' : undefined" :required="!canReuseSavedCredential">
+              <UInput v-model="connectionForm.password" class="w-full" type="password" autocomplete="current-password" />
+            </UFormField>
+          </div>
+
+          <div v-if="connectionError" class="flex items-start gap-2 rounded-md border border-error/30 bg-error/10 px-3 py-2.5 text-sm text-error">
+            <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0" />
+            <span>{{ connectionError }}</span>
+          </div>
+
+          <p class="text-xs text-muted">The credential is saved in the operating system vault. The profile stores only the URL, authentication mode, and username.</p>
+        </form>
+      </div>
     </template>
 
     <template #footer>
       <div class="flex w-full items-center justify-between gap-3">
-        <UButton v-if="savedProfile" type="button" label="Forget connection" color="error" variant="ghost" @click="disconnectConnection" />
+        <UButton v-if="savedProfile" type="button" label="Forget active profile" color="error" variant="ghost" @click="disconnectConnection" />
         <span v-else />
         <div class="flex gap-2">
           <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="settingsOpen = false" />

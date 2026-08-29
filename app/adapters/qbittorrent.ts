@@ -1,9 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionSnapshot, MetadataFetch, RestoreOutcome, TorrentFile, TorrentFilePriority, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfileList, ConnectionSnapshot, MetadataFetch, ResolveOutcome, TorrentFile, TorrentFilePriority, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 
 export interface QbittorrentAdapter {
   connect: (input: ConnectionInput) => Promise<ConnectionSnapshot>
-  restore: () => Promise<RestoreOutcome>
+  resolve: () => Promise<ResolveOutcome>
+  connectSaved: (profileId: string) => Promise<ConnectionSnapshot>
+  removeProfile: (profileId: string) => Promise<ConnectionProfileList>
+  listProfiles: () => Promise<ConnectionProfileList>
   refresh: () => Promise<ConnectionSnapshot>
   setTorrentPaused: (torrentIds: string[], paused: boolean) => Promise<ConnectionSnapshot>
   removeTorrents: (torrentIds: string[], deleteFiles: boolean) => Promise<ConnectionSnapshot>
@@ -25,7 +28,10 @@ export interface QbittorrentAdapter {
 
 export const tauriQbittorrentAdapter: QbittorrentAdapter = {
   connect: input => invoke<ConnectionSnapshot>('connect_qbittorrent', { input }),
-  restore: () => invoke<RestoreOutcome>('restore_saved_qbittorrent'),
+  resolve: () => invoke<ResolveOutcome>('resolve_connection'),
+  connectSaved: profileId => invoke<ConnectionSnapshot>('connect_saved_qbittorrent', { id: profileId }),
+  removeProfile: profileId => invoke<ConnectionProfileList>('remove_connection_profile', { id: profileId }),
+  listProfiles: () => invoke<ConnectionProfileList>('list_connection_profiles'),
   refresh: () => invoke<ConnectionSnapshot>('refresh_qbittorrent'),
   setTorrentPaused: (torrentIds, paused) => invoke<ConnectionSnapshot>('set_torrents_paused', { torrentIds, paused }),
   removeTorrents: (torrentIds, deleteFiles) => invoke<ConnectionSnapshot>('remove_torrents', { torrentIds, deleteFiles }),

@@ -36,7 +36,10 @@ pub fn run() {
         .on_window_event(tray::handle_window_event)
         .invoke_handler(tauri::generate_handler![
             qbittorrent::connect_qbittorrent,
-            qbittorrent::restore_saved_qbittorrent,
+            qbittorrent::resolve_connection,
+            qbittorrent::connect_saved_qbittorrent,
+            qbittorrent::remove_connection_profile,
+            qbittorrent::list_connection_profiles,
             qbittorrent::refresh_qbittorrent,
             qbittorrent::set_torrents_paused,
             qbittorrent::remove_torrents,
