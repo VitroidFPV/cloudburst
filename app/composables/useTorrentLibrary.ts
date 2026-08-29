@@ -1,10 +1,10 @@
 import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import { REFRESH_CADENCE_INTERVALS_MS, useRefreshCadenceSetting } from '~/composables/useRefreshCadenceSetting'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
-import { isUiDebugActive, uiDebugTorrents } from '~/utils/ui-debug'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-export const CONNECTION_POLL_INTERVAL_MS = 5_000
+export const CONNECTION_POLL_INTERVAL_MS = REFRESH_CADENCE_INTERVALS_MS.normal
 export const CONNECTION_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const
 
 export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrentAdapter) => {
@@ -25,7 +25,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const operationGeneration = useState('connection-operation-generation', () => 0)
   const defaultSavePath = useState('default-save-path', () => '')
 
-  if (adapter === tauriQbittorrentAdapter && isUiDebugActive()) torrents.value = uiDebugTorrents
+  const { refreshCadence } = useRefreshCadenceSetting()
 
   const filters = computed<TorrentFilter[]>(() => [
     { id: 'all', label: 'All torrents', icon: 'i-lucide-list-filter', count: torrents.value.length },
@@ -516,6 +516,8 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     let retryIndex = 0
     let timer: ReturnType<typeof setTimeout> | undefined
 
+    const pollInterval = () => REFRESH_CADENCE_INTERVALS_MS[refreshCadence.value]
+
     const schedule = (delay: number) => {
       if (stopped) return
       timer = setTimeout(() => void poll(), delay)
@@ -532,15 +534,15 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
       if (successful === false && savedProfiles.value.length) {
         const delay = CONNECTION_RETRY_DELAYS_MS[Math.min(retryIndex, CONNECTION_RETRY_DELAYS_MS.length - 1)]
         retryIndex = Math.min(retryIndex + 1, CONNECTION_RETRY_DELAYS_MS.length - 1)
-        schedule(delay ?? CONNECTION_POLL_INTERVAL_MS)
+        schedule(delay ?? pollInterval())
         return
       }
 
       retryIndex = 0
-      schedule(CONNECTION_POLL_INTERVAL_MS)
+      schedule(pollInterval())
     }
 
-    schedule(CONNECTION_POLL_INTERVAL_MS)
+    schedule(pollInterval())
 
     return () => {
       stopped = true

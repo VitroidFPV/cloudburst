@@ -27,6 +27,7 @@ const getWindowBackgroundColor = (): [number, number, number, number] => {
 
 export const useAppearanceSetting = () => {
   const appearanceMode = useState<AppearanceMode>('appearance-setting', () => 'mica')
+  const colorMode = useColorMode()
 
   const canUseWindowMaterials = typeof window !== 'undefined'
     && '__TAURI_INTERNALS__' in window
@@ -96,6 +97,16 @@ export const useAppearanceSetting = () => {
     localStorage.setItem(APPEARANCE_STORAGE_KEY, mode)
     applyAppearanceClass()
     void applyWindowEffect()
+  }
+
+  // The native surfaces are matched to the resolved color mode, so a theme
+  // swap must re-apply them after the html class has settled. The color mode
+  // plugin is absent in environments that exercise the composable bare.
+  if (colorMode) {
+    watch(() => colorMode.value, () => {
+      if (!canUseWindowMaterials) return
+      void applyWindowEffect()
+    }, { flush: 'post' })
   }
 
   return {

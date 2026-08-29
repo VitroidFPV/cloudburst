@@ -1,4 +1,5 @@
-import { clearNuxtState } from '#app'
+import { clearNuxtState, useState } from '#app'
+import { reactive } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppearanceSetting } from '~/composables/useAppearanceSetting'
 
@@ -109,6 +110,28 @@ describe('useAppearanceSetting', () => {
 
     expect(activeAppearanceClasses()).toEqual(['appearance-toned'])
     expect(useAppearanceSetting().appearanceMode.value).toBe('toned')
+  })
+
+  it('re-matches the native window surfaces when the color mode changes', async () => {
+    stubWindowsDesktop()
+
+    const colorMode = useState('color-mode', () => reactive({
+      preference: 'light',
+      value: 'light',
+      unknown: false,
+      forced: false,
+    })).value!
+
+    useAppearanceSetting().setAppearanceMode('off')
+
+    await vi.waitFor(() => expect(windowMocks.setBackgroundColor).toHaveBeenCalledOnce())
+    windowMocks.setBackgroundColor.mockClear()
+
+    document.documentElement.classList.add('dark')
+    colorMode.preference = 'dark'
+    colorMode.value = 'dark'
+
+    await vi.waitFor(() => expect(windowMocks.setBackgroundColor).toHaveBeenCalledWith([16, 16, 18, 255]))
   })
 
   it.each([

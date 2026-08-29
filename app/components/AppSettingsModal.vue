@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { AppearanceMode } from '~/composables/useAppearanceSetting'
+import type { RefreshCadence } from '~/composables/useRefreshCadenceSetting'
 
 const { appearanceMode, canUseWindowMaterials, setAppearanceMode } = useAppearanceSetting()
+const { refreshCadence, setRefreshCadence } = useRefreshCadenceSetting()
+const colorMode = useColorMode()
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -30,15 +33,39 @@ const appearanceDescriptions: Record<AppearanceMode, string> = {
   toned: 'Keep the standard colors with a subtle hint of the desktop material.',
   mica: 'Let the Windows desktop material show clearly through the app.',
 }
+
+const colorModeOptions = [
+  { label: 'System', value: 'system', icon: 'i-lucide-monitor' },
+  { label: 'Light', value: 'light', icon: 'i-lucide-sun' },
+  { label: 'Dark', value: 'dark', icon: 'i-lucide-moon' },
+]
+
+const colorModeDescriptions: Record<string, string> = {
+  system: 'Follow the Windows personalization setting.',
+  light: 'Use Cloudburst\'s light theme.',
+  dark: 'Use Cloudburst\'s dark theme.',
+}
+
+const refreshCadenceOptions: { label: string, value: RefreshCadence }[] = [
+  { label: 'Fast', value: 'fast' },
+  { label: 'Normal', value: 'normal' },
+  { label: 'Slow', value: 'slow' },
+]
+
+const refreshCadenceDescriptions: Record<RefreshCadence, string> = {
+  fast: 'Check the qBittorrent instance for transfer activity every 2 seconds.',
+  normal: 'Check the qBittorrent instance for transfer activity every 5 seconds.',
+  slow: 'Check the qBittorrent instance for transfer activity every 15 seconds.',
+}
 </script>
 
 <template>
   <UModal v-model:open="open" title="Settings" description="Personalize how Cloudburst looks and behaves.">
     <template #body>
-      <div class="space-y-3">
-        <section class="space-y-2">
+      <div class="space-y-6">
+        <section class="space-y-3">
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Appearance</h3>
-          <div class="space-y-2.5 rounded-lg border border-default bg-elevated p-3">
+          <div class="space-y-2">
             <div>
               <p class="text-sm font-medium text-highlighted">Window material</p>
               <p class="mt-0.5 text-xs text-muted">
@@ -55,6 +82,45 @@ const appearanceDescriptions: Record<AppearanceMode, string> = {
               aria-label="Window material"
               :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
               @update:model-value="setAppearanceMode"
+            />
+          </div>
+          <div class="space-y-2">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Color mode</p>
+              <p class="mt-0.5 text-xs text-muted">
+                {{ colorModeDescriptions[colorMode.preference] ?? colorModeDescriptions.system }}
+              </p>
+            </div>
+            <URadioGroup
+              v-model="colorMode.preference"
+              :items="colorModeOptions"
+              variant="table"
+              orientation="horizontal"
+              indicator="hidden"
+              size="sm"
+              aria-label="Color mode"
+              :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
+            />
+          </div>
+        </section>
+
+        <section class="space-y-3">
+          <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Behavior</h3>
+          <div class="space-y-2">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Refresh cadence</p>
+              <p class="mt-0.5 text-xs text-muted">{{ refreshCadenceDescriptions[refreshCadence] }}</p>
+            </div>
+            <URadioGroup
+              :model-value="refreshCadence"
+              :items="refreshCadenceOptions"
+              variant="table"
+              orientation="horizontal"
+              indicator="hidden"
+              size="sm"
+              aria-label="Refresh cadence"
+              :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
+              @update:model-value="setRefreshCadence"
             />
           </div>
         </section>

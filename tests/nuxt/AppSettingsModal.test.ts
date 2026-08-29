@@ -1,0 +1,69 @@
+import { useColorMode } from '#imports'
+import { mountSuspended } from '@nuxt/test-utils/runtime'
+import { flushPromises, type VueWrapper } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import AppSettingsModal from '~/components/AppSettingsModal.vue'
+
+const mountedWrappers: VueWrapper[] = []
+
+const mountModal = async () => {
+  const wrapper = await mountSuspended(AppSettingsModal, { props: { open: true } })
+  mountedWrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
+}
+
+afterEach(() => {
+  mountedWrappers.forEach(wrapper => wrapper.unmount())
+  mountedWrappers.length = 0
+  delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+})
+
+const bodyText = () => document.body.textContent ?? ''
+
+const findRadioOption = (label: string) =>
+  Array.from(document.body.querySelectorAll('label'))
+    .find(element => element.textContent?.trim() === label)
+
+const clickRadio = async (label: string) => {
+  const option = findRadioOption(label)
+  expect(option, `expected a "${label}" radio option`).toBeDefined()
+  const radio = option!.querySelector<HTMLButtonElement>('[role="radio"]')
+  expect(radio, `expected a radio input for "${label}"`).toBeDefined()
+  radio!.click()
+  await flushPromises()
+}
+
+describe('AppSettingsModal', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  })
+
+  it('offers window material, color mode, and refresh cadence settings', async () => {
+    await mountModal()
+
+    expect(bodyText()).toContain('Window material')
+    expect(bodyText()).toContain('Color mode')
+    expect(bodyText()).toContain('Refresh cadence')
+    expect(findRadioOption('Mica')).toBeDefined()
+    expect(findRadioOption('Dark')).toBeDefined()
+    expect(findRadioOption('Slow')).toBeDefined()
+  })
+
+  it('applies and persists a color mode choice', async () => {
+    await mountModal()
+
+    await clickRadio('Dark')
+
+    expect(useColorMode().preference).toBe('dark')
+  })
+
+  it('applies and persists a refresh cadence choice', async () => {
+    await mountModal()
+
+    await clickRadio('Slow')
+
+    expect(localStorage.getItem('cloudburst:refresh-cadence')).toBe('slow')
+  })
+})

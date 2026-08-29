@@ -415,7 +415,7 @@ describe('useTorrentLibrary connection lifecycle', () => {
   it('keeps the connection when forgetting a non-active profile', async () => {
     const library = useTorrentLibrary(createAdapter({
       connect: async () => snapshot,
-      listProfiles: async () => profileList([profile, remoteProfile], profile.id),
+      listProfiles: async () => profileList([profile], profile.id),
       removeProfile: async () => profileList([profile], profile.id),
     }))
 
