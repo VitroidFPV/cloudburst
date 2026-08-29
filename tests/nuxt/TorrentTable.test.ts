@@ -29,9 +29,18 @@ const torrent: Torrent = {
   savePath: 'C:/Downloads',
 }
 
+// Overlays teleport to document.body and outlive their test wrappers, so
+// leftover menus and dialogs must be dropped before asserting on new ones.
+const dropLeftoverOverlays = () => {
+  document.body
+    .querySelectorAll('[role="menu"], [role="dialog"], [role="listbox"]')
+    .forEach(overlay => overlay.remove())
+}
+
 describe('TorrentTable', () => {
   beforeEach(() => {
     localStorage.clear()
+    dropLeftoverOverlays()
   })
 
   it('renders page-owned actions, notices, and empty content through its interface', async () => {
@@ -130,6 +139,112 @@ describe('TorrentTable', () => {
 
     await wrapper.setProps({ autoSelectIds: ['torrent-1'] })
 
+    expect(wrapper.text()).toContain('1 selected')
+  })
+
+  it('searches torrent names, categories, tags, and statuses', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: {
+        torrents: [
+          torrent,
+          { ...torrent, id: 'torrent-2', name: 'Big Buck Bunny', category: 'Movies', tags: ['feature'], status: 'paused' },
+          { ...torrent, id: 'torrent-3', name: 'Fedora ISO', category: 'Linux', tags: ['iso'], status: 'seeding' },
+        ],
+      },
+    })
+    const search = wrapper.get('[aria-label="Search torrents"]')
+
+    await search.setValue('movies')
+    await flushPromises()
+    expect(wrapper.text()).toContain('1 of 3')
+
+    await search.setValue('linux')
+    await flushPromises()
+    expect(wrapper.text()).toContain('2 of 3')
+  })
+
+  it('exposes explicit pointer and keyboard detail actions', async () => {
+    const wrapper = await mountSuspended(TorrentTable, { props: { torrents: [torrent] } })
+
+    await wrapper.get('[aria-label="Open details for Debian ISO"]').trigger('click')
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1']])
+
+    await wrapper.get('tbody tr').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1'], ['torrent-1']])
+  })
+
+  it('toggles details from the chevron and labels it for the open state', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], openTorrentId: null },
+    })
+
+    const chevron = () => wrapper.get('[aria-label="Open details for Debian ISO"]')
+    await chevron().trigger('click')
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1']])
+
+    await wrapper.setProps({ openTorrentId: 'torrent-1' })
+    const closeChevron = wrapper.get('[aria-label="Close details for Debian ISO"]')
+    expect(closeChevron.attributes('aria-expanded')).toBe('true')
+
+    await closeChevron.trigger('click')
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1'], ['torrent-1']])
+  })
+
+  it('offers a closing context menu action while the selection is open', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], openTorrentId: 'torrent-1' },
+    })
+
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+    await wrapper.get('.torrent-table').trigger('contextmenu', { button: 2, clientX: 40, clientY: 40 })
+    await flushPromises()
+    const menus = document.body.querySelectorAll('[role="menu"]')
+    const menu = menus[menus.length - 1]
+
+    expect(menu?.textContent).toContain('Close details')
+    const closeItem = Array.from(menu!.querySelectorAll('[role="menuitem"]'))
+      .find(item => item.textContent?.includes('Close details'))!
+    closeItem.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1']])
+    await wrapper.unmount()
+  })
+
+  it('closes open details with Escape before clearing the selection', async () => {
+    dropLeftoverOverlays()
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], openTorrentId: 'torrent-1' },
+    })
+
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+    expect(wrapper.text()).toContain('1 selected')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    expect(wrapper.emitted('toggle-details')).toEqual([['torrent-1']])
+
+    await wrapper.setProps({ openTorrentId: null })
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('1 selected')
+    expect(wrapper.emitted('toggle-details')).toHaveLength(1)
+    await wrapper.unmount()
+  })
+
+  it('leaves dialogs to handle Escape and keeps the selection', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], openTorrentId: null },
+    })
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.appendChild(dialog)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    dialog.remove()
+
+    expect(wrapper.emitted('toggle-details')).toBeUndefined()
     expect(wrapper.text()).toContain('1 selected')
   })
 

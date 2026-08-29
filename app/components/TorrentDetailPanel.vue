@@ -39,6 +39,8 @@ const properties = ref<TorrentProperties | null>(null)
 const files = ref<TorrentFile[] | null>(null)
 const trackers = ref<TorrentTracker[] | null>(null)
 const detailsLoading = ref(false)
+type DetailTab = 'overview' | 'files' | 'trackers'
+const activeDetailTab = ref<DetailTab>('overview')
 
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let pollGeneration = 0
@@ -99,6 +101,7 @@ const loadTagOptions = async () => {
 }
 
 watch(() => props.torrentId, () => {
+  activeDetailTab.value = 'overview'
   resetDetails()
   if (props.torrentId) {
     void poll(props.torrentId)
@@ -165,6 +168,11 @@ const onTreeChange = (payload: { priorities: number[], selectedSize: number, all
 
 const trackersVisible = computed(() => (trackers.value ?? []).filter(tracker => tracker.tier >= 0))
 const workingTrackerCount = computed(() => trackersVisible.value.filter(tracker => tracker.status === 2).length)
+const detailTabItems = computed(() => [
+  { label: 'Overview', icon: 'i-lucide-layout-dashboard', value: 'overview' },
+  { label: 'Files', icon: 'i-lucide-files', value: 'files', badge: files.value === null ? undefined : files.value.length },
+  { label: 'Trackers', icon: 'i-lucide-radio-tower', value: 'trackers', badge: trackers.value === null ? undefined : trackersVisible.value.length },
+])
 
 const trackerStatusMeta = (status: number): { label: string, tone: string } => {
   if (status === 0) return { label: 'Disabled', tone: 'bg-neutral-500' }
@@ -240,8 +248,19 @@ const onTagsChange = async (value: string[]) => {
       />
     </div>
 
+    <UTabs
+      v-model="activeDetailTab"
+      :items="detailTabItems"
+      :content="false"
+      variant="link"
+      size="sm"
+      class="shrink-0 border-b border-default px-4 sm:px-6"
+      :ui="{ list: 'w-full', trigger: 'min-w-0 flex-1' }"
+    />
+
     <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-      <section class="space-y-3">
+      <template v-if="activeDetailTab === 'overview'">
+        <section class="space-y-3">
         <div class="rounded-xl border border-default bg-elevated/40 p-4 shadow-sm">
           <div class="mb-3 flex items-start justify-between gap-3">
             <div>
@@ -288,9 +307,9 @@ const onTagsChange = async (value: string[]) => {
             <dd class="mt-1 truncate font-mono text-sm font-medium tabular-nums text-highlighted" :title="stat.value">{{ stat.value }}</dd>
           </div>
         </dl>
-      </section>
+        </section>
 
-      <section class="space-y-3">
+        <section class="space-y-3">
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-activity" class="size-4 text-muted" />
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Activity</h3>
@@ -308,9 +327,9 @@ const onTagsChange = async (value: string[]) => {
             </div>
           </div>
         </dl>
-      </section>
+        </section>
 
-      <section class="space-y-3">
+        <section class="space-y-3">
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-info" class="size-4 text-muted" />
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Details</h3>
@@ -361,9 +380,10 @@ const onTagsChange = async (value: string[]) => {
             />
           </UFormField>
         </div>
-      </section>
+        </section>
+      </template>
 
-      <section class="space-y-2">
+      <section v-else-if="activeDetailTab === 'files'" class="space-y-2">
         <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-files" class="size-4 text-muted" />
@@ -390,7 +410,7 @@ const onTagsChange = async (value: string[]) => {
         </p>
       </section>
 
-      <section class="space-y-2">
+      <section v-else class="space-y-2">
         <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-2">
             <UIcon name="i-lucide-radio-tower" class="size-4 text-muted" />

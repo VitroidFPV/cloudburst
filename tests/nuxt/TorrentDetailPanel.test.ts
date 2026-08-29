@@ -53,6 +53,16 @@ describe('TorrentDetailPanel', () => {
     expect(wrapper.text()).toContain('Trackers')
     expect(wrapper.text()).toContain('Files')
 
+    const tabs = wrapper.findAll('[role="tab"]')
+    await tabs.find(tab => tab.text().includes('Files'))!.trigger('mousedown', { button: 0, ctrlKey: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain('The file list is unavailable right now.')
+    expect(wrapper.text()).not.toContain('Total size')
+
+    await tabs.find(tab => tab.text().includes('Trackers'))!.trigger('mousedown', { button: 0, ctrlKey: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain('The tracker list is unavailable right now.')
+
     await wrapper.unmount()
   })
 

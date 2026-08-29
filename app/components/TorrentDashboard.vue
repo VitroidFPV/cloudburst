@@ -56,8 +56,8 @@ const dropActive = ref(false)
 let dragDepth = 0
 
 const detailTorrentId = ref<string | null>(null)
-const openDetails = (torrentId: string) => {
-  detailTorrentId.value = torrentId
+const toggleDetails = (torrentId: string) => {
+  detailTorrentId.value = detailTorrentId.value === torrentId ? null : torrentId
 }
 
 const instanceCategories = ref<string[]>([])
@@ -115,9 +115,27 @@ const categoryItems = computed<NavigationMenuItem[]>(() => [
 
 const connectionBadge = computed(() => {
   if (stale.value) return { label: 'Stale', color: 'warning' as const }
-  if (connectionStatus.value === 'connected') return { label: `v${connectionVersion.value}`, color: 'success' as const }
+  if (connectionStatus.value === 'connected') return { label: 'Connected', color: 'success' as const }
   if (connectionStatus.value === 'connecting') return { label: 'Connecting', color: 'neutral' as const }
   return { label: 'Disconnected', color: 'error' as const }
+})
+
+const connectionTarget = computed(() => connectionEndpoint.value || savedProfile.value?.endpoint || '')
+const connectionHost = computed(() => {
+  if (!connectionTarget.value) return ''
+  try {
+    return new URL(connectionTarget.value).host
+  }
+  catch {
+    return connectionTarget.value
+  }
+})
+
+const connectionDescription = computed(() => {
+  if (stale.value) return connectionHost.value ? `Last reached ${connectionHost.value}` : 'Torrent data may be out of date'
+  if (connectionStatus.value === 'connected') return connectionHost.value
+  if (connectionStatus.value === 'connecting') return connectionHost.value ? `Connecting to ${connectionHost.value}` : 'Resolving connection'
+  return connectionHost.value ? `Saved: ${connectionHost.value}` : 'No instance configured'
 })
 
 const connectionDotClass = computed(() => {
@@ -431,15 +449,24 @@ onBeforeUnmount(() => {
       </template>
 
       <template #footer>
-        <button type="button" class="w-full space-y-3 rounded-md px-1 py-1 text-left text-sm hover:bg-elevated" @click="settingsOpen = true">
+        <button
+          type="button"
+          class="w-full space-y-2.5 rounded-lg border border-transparent p-2 text-left text-sm transition-colors hover:border-default hover:bg-elevated focus-visible:outline-2 focus-visible:outline-primary"
+          :title="connectionTarget || 'Configure a qBittorrent connection'"
+          @click="settingsOpen = true"
+        >
           <span class="flex items-center justify-between gap-2">
-            <span class="flex min-w-0 items-center gap-2 text-muted">
+            <span class="flex min-w-0 items-center gap-2 text-highlighted">
               <span class="size-2 shrink-0 rounded-full" :class="connectionDotClass" />
-              <span class="truncate">qBittorrent</span>
+              <span class="truncate font-medium">qBittorrent</span>
             </span>
-            <UBadge :label="connectionBadge.label" :color="connectionBadge.color" variant="outline" size="sm" />
+            <UBadge :label="connectionBadge.label" :color="connectionBadge.color" variant="subtle" size="sm" />
           </span>
-          <span class="flex items-center justify-between font-mono text-xs text-muted">
+          <span class="flex min-w-0 items-center justify-between gap-2 text-xs text-muted">
+            <span class="truncate">{{ connectionDescription }}</span>
+            <span v-if="connectionStatus === 'connected' && connectionVersion" class="shrink-0 font-mono">v{{ connectionVersion }}</span>
+          </span>
+          <span v-if="connectionStatus === 'connected' && !stale" class="flex items-center justify-between font-mono text-xs text-muted">
             <span>↓ {{ formatSpeed(transferTotals.down) }}</span>
             <span>↑ {{ formatSpeed(transferTotals.up) }}</span>
           </span>
@@ -456,46 +483,49 @@ onBeforeUnmount(() => {
           :auto-select-ids="autoSelectIds"
           :categories="instanceCategories"
           :tags="instanceTags"
+          :open-torrent-id="detailTorrentId"
           @set-paused="updateTorrentActivity"
           @remove-torrents="removeSelectedTorrents"
           @set-category="onSetCategory"
           @add-tags="onAddTags"
           @remove-tags="onRemoveTags"
-          @open="openDetails"
+          @toggle-details="toggleDetails"
         >
           <template #actions>
-            <UButton
-              icon="i-lucide-plus"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Add torrents"
-              title="Add torrents"
-              :disabled="torrentActionsDisabled"
-              :loading="activityUpdating"
-              @click="openAddModal"
-            />
-            <UButton
-              v-if="connectionEndpoint"
-              icon="i-lucide-refresh-cw"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Refresh torrents"
-              title="Refresh torrents"
-              :loading="refreshing"
-              :disabled="activityUpdating"
-              @click="retryConnection"
-            />
-            <UButton
-              :icon="connectionEndpoint ? 'i-lucide-settings' : 'i-lucide-plug-zap'"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :aria-label="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
-              :title="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
-              @click="settingsOpen = true"
-            />
+            <UTooltip text="Add torrents">
+              <UButton
+                icon="i-lucide-plus"
+                color="primary"
+                variant="soft"
+                size="sm"
+                aria-label="Add torrents"
+                :disabled="torrentActionsDisabled"
+                :loading="activityUpdating"
+                @click="openAddModal"
+              />
+            </UTooltip>
+            <UTooltip v-if="connectionEndpoint" text="Refresh torrents">
+              <UButton
+                icon="i-lucide-refresh-cw"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Refresh torrents"
+                :loading="refreshing"
+                :disabled="activityUpdating"
+                @click="retryConnection"
+              />
+            </UTooltip>
+            <UTooltip :text="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'">
+              <UButton
+                :icon="connectionEndpoint ? 'i-lucide-settings' : 'i-lucide-plug-zap'"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                :aria-label="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
+                @click="settingsOpen = true"
+              />
+            </UTooltip>
           </template>
 
           <template #notice>

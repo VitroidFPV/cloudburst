@@ -11,6 +11,7 @@ const props = defineProps<{
   autoSelectIds?: string[]
   categories?: string[]
   tags?: string[]
+  openTorrentId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -19,11 +20,11 @@ const emit = defineEmits<{
   'set-category': [torrentIds: string[], category: string]
   'add-tags': [torrentIds: string[], tags: string[]]
   'remove-tags': [torrentIds: string[], tags: string[]]
-  open: [torrentId: string]
+  'toggle-details': [torrentId: string]
 }>()
 
 // UTable has no double-click hook, so a second click on the same row within
-// the threshold counts as opening the torrent's details.
+// the threshold counts as toggling the torrent's details.
 const DOUBLE_CLICK_MS = 400
 let lastClick: { id: string, at: number } | undefined
 
@@ -32,6 +33,30 @@ const UIcon = resolveComponent('UIcon')
 const UProgress = resolveComponent('UProgress')
 const UButton = resolveComponent('UButton')
 const UCheckbox = resolveComponent('UCheckbox')
+
+const tableRoot = useTemplateRef<HTMLElement>('tableRoot')
+const searchQuery = ref('')
+const normalizedSearchQuery = computed(() => searchQuery.value.trim().toLocaleLowerCase())
+const filteredTorrents = computed(() => {
+  const query = normalizedSearchQuery.value
+  if (!query) return props.torrents
+
+  return props.torrents.filter(torrent => [
+    torrent.name,
+    torrent.category,
+    torrent.tags.join(' '),
+    statusLabel[torrent.status],
+  ].some(value => value.toLocaleLowerCase().includes(query)))
+})
+
+const focusSearch = () => {
+  tableRoot.value?.querySelector<HTMLInputElement>('#torrent-search')?.focus()
+}
+
+defineShortcuts({
+  '/': focusSearch,
+  meta_f: focusSearch,
+})
 
 const defaultColumnSizing = {
   select: 44,
@@ -87,6 +112,8 @@ const selectedCount = computed(() => selectedTorrents.value.length)
 const canStartSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status === 'paused'))
 const canStopSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status !== 'paused'))
 const activityActionsDisabled = computed(() => props.actionsDisabled || props.actionPending)
+const detailsOpenForSelection = computed(() => selectedCount.value === 1
+  && selectedTorrents.value[0]!.id === props.openTorrentId)
 
 const emitSelectedActivity = (paused: boolean) => {
   if (!selectedCount.value || activityActionsDisabled.value) return
@@ -105,10 +132,10 @@ const confirmRemoval = (deleteFiles: boolean) => {
 const contextMenuItems = computed<ContextMenuItem[][]>(() => {
   const groups: ContextMenuItem[][] = [[
     {
-      label: 'Details',
-      icon: 'i-lucide-panel-right-open',
+      label: detailsOpenForSelection.value ? 'Close details' : 'Details',
+      icon: detailsOpenForSelection.value ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open',
       disabled: selectedCount.value !== 1,
-      onSelect: () => emit('open', selectedTorrents.value[0]!.id),
+      onSelect: () => emit('toggle-details', selectedTorrents.value[0]!.id),
     },
     {
       label: 'Start',
@@ -197,7 +224,7 @@ const selectRow = (event: Event, row: TableRow<Torrent>) => {
     && lastClick?.id === row.id && now - lastClick.at <= DOUBLE_CLICK_MS
   lastClick = { id: row.id, at: now }
   if (isDoubleClick) {
-    emit('open', row.original.id)
+    emit('toggle-details', row.original.id)
     return
   }
 
@@ -212,6 +239,44 @@ const selectRow = (event: Event, row: TableRow<Torrent>) => {
 
   rowSelection.value = result.selected
   selectionAnchorId.value = result.anchorId
+}
+
+const openFocusedRow = (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  const rowElement = target?.closest<HTMLTableRowElement>('tbody tr')
+  if (!rowElement || target !== rowElement) return
+
+  const rowIndex = Number(rowElement.style.getPropertyValue('--torrent-row-index'))
+  const row = torrentTable.value?.tableApi.getRowModel().rows.find(candidate => candidate.index === rowIndex)
+  if (!row) return
+
+  event.preventDefault()
+  emit('toggle-details', row.original.id)
+}
+
+const clearSelection = () => {
+  rowSelection.value = {}
+  selectionAnchorId.value = undefined
+}
+
+// Escape closes the open details first; with details closed it clears the
+// selection. Open dialogs and menus keep their own Escape handling.
+const onDocumentKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
+  if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return
+
+  if (props.openTorrentId) {
+    emit('toggle-details', props.openTorrentId)
+    return
+  }
+  if (selectedCount.value) clearSelection()
+}
+
+const tableMeta = {
+  class: { tr: 'group' },
+  style: {
+    tr: (row: TableRow<Torrent>) => ({ '--torrent-row-index': String(row.index) }),
+  },
 }
 
 const prepareRowContextMenu = (_event: Event, row: TableRow<Torrent>) => {
@@ -487,13 +552,34 @@ const columns: TableColumn<Torrent>[] = [
     meta: resizableColumnMeta,
     cell: ({ row }) => {
       const statusText = statusTextClass[row.original.status]
+      const detailsOpen = props.openTorrentId === row.original.id
 
       return h('div', { class: 'flex w-full min-w-0 items-center gap-3' }, [
         h(UIcon, { name: statusIcon[row.original.status], class: `size-4 shrink-0 ${statusText}` }),
-        h('div', { class: 'min-w-0' }, [
+        h('div', { class: 'min-w-0 flex-1' }, [
           h('p', { class: `truncate font-medium ${statusText}` }, row.original.name),
           h('p', { class: 'truncate text-xs text-muted' }, `${row.original.category || 'Uncategorized'} · ${formatBytes(row.original.size)}`),
         ]),
+        h(UButton, {
+          type: 'button',
+          icon: 'i-lucide-chevron-right',
+          color: 'neutral',
+          variant: 'ghost',
+          size: 'xs',
+          class: [
+            'shrink-0 transition-all',
+            detailsOpen
+              ? 'rotate-180 opacity-100'
+              : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+          ],
+          'aria-label': `${detailsOpen ? 'Close' : 'Open'} details for ${row.original.name}`,
+          'aria-expanded': detailsOpen,
+          title: `${detailsOpen ? 'Close' : 'Open'} details for ${row.original.name}`,
+          onClick: (event: MouseEvent) => {
+            event.stopPropagation()
+            emit('toggle-details', row.original.id)
+          },
+        }),
       ])
     },
   },
@@ -612,6 +698,7 @@ const columns: TableColumn<Torrent>[] = [
 ]
 
 onMounted(() => {
+  document.addEventListener('keydown', onDocumentKeydown)
   try {
     const savedSizing = JSON.parse(localStorage.getItem(columnSizingStorageKey) || '{}') as Record<string, unknown>
     const validSizing = Object.fromEntries(Object.entries(savedSizing).filter(([column, size]) => (
@@ -637,6 +724,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   cancelActiveColumnResize?.()
+  document.removeEventListener('keydown', onDocumentKeydown)
 })
 
 watch(columnSizing, sizing => localStorage.setItem(columnSizingStorageKey, JSON.stringify(sizing)), { deep: true })
@@ -655,47 +743,72 @@ watch(() => props.autoSelectIds, (ids) => {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div ref="tableRoot" class="flex min-h-0 flex-1 flex-col">
     <div class="flex h-(--ui-header-height) shrink-0 items-center justify-between gap-3 border-b border-default px-4 sm:px-6">
-      <div class="flex min-w-0 items-center gap-2">
-      <UBadge v-if="selectedCount" :label="`${selectedCount} selected`" color="primary" variant="subtle" />
+      <div class="flex min-w-0 flex-1 items-center gap-2">
+        <UInput
+          id="torrent-search"
+          v-model="searchQuery"
+          icon="i-lucide-search"
+          size="sm"
+          placeholder="Search torrents…"
+          aria-label="Search torrents"
+          class="min-w-32 max-w-lg flex-1"
+          :disabled="!torrents.length"
+        >
+          <template v-if="searchQuery" #trailing>
+            <UButton
+              type="button"
+              icon="i-lucide-x"
+              color="neutral"
+              variant="link"
+              size="xs"
+              aria-label="Clear torrent search"
+              @click="searchQuery = ''"
+            />
+          </template>
+        </UInput>
+        <UBadge v-if="selectedCount" :label="`${selectedCount} selected`" color="primary" variant="subtle" />
+        <span v-else-if="normalizedSearchQuery" class="shrink-0 text-xs text-muted">
+          {{ filteredTorrents.length }} of {{ torrents.length }}
+        </span>
       </div>
 
       <div class="flex shrink-0 items-center gap-1">
         <div v-if="selectedCount" class="flex items-center gap-1 border-r border-default pr-1">
-        <UButton
-          icon="i-lucide-play"
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          aria-label="Start selected torrents"
-          title="Start selected torrents"
-          :disabled="activityActionsDisabled || !canStartSelected"
-          :loading="actionPending"
-          @click="emitSelectedActivity(false)"
-        />
-        <UButton
-          icon="i-lucide-square"
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          aria-label="Stop selected torrents"
-          title="Stop selected torrents"
-          :disabled="activityActionsDisabled || !canStopSelected"
-          :loading="actionPending"
-          @click="emitSelectedActivity(true)"
-        />
-        <UButton
-          icon="i-lucide-trash-2"
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          aria-label="Remove selected torrents"
-          title="Remove selected torrents"
-          :disabled="activityActionsDisabled"
-          :loading="actionPending"
-          @click="removeOpen = true"
-        />
+          <UButton
+            icon="i-lucide-play"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Start selected torrents"
+            title="Start selected torrents"
+            :disabled="activityActionsDisabled || !canStartSelected"
+            :loading="actionPending"
+            @click="emitSelectedActivity(false)"
+          />
+          <UButton
+            icon="i-lucide-square"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Stop selected torrents"
+            title="Stop selected torrents"
+            :disabled="activityActionsDisabled || !canStopSelected"
+            :loading="actionPending"
+            @click="emitSelectedActivity(true)"
+          />
+          <UButton
+            icon="i-lucide-trash-2"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Remove selected torrents"
+            title="Remove selected torrents"
+            :disabled="activityActionsDisabled"
+            :loading="actionPending"
+            @click="removeOpen = true"
+          />
         </div>
         <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
           <UButton
@@ -722,17 +835,30 @@ watch(() => props.autoSelectIds, (ids) => {
           v-model:column-visibility="columnVisibility"
           v-model:row-selection="rowSelection"
           v-model:sorting="sorting"
-          :data="torrents"
+          :data="filteredTorrents"
           :columns="columns"
           :column-sizing-options="{ columnResizeMode: 'onEnd' }"
           :get-row-id="torrent => torrent.id"
           :on-contextmenu="prepareRowContextMenu"
           :on-select="selectRow"
-          :virtualize="{ estimateSize: 65, overscan: 8 }"
+          :meta="tableMeta"
+          :virtualize="filteredTorrents.length > 50 ? { estimateSize: 65, overscan: 8 } : false"
           :style="{ '--torrent-table-width': `${tableWidth}px` }"
           :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
           class="torrent-table min-h-0 flex-1"
-        />
+          @keydown.enter="openFocusedRow"
+        >
+          <template #empty>
+            <div class="grid min-h-56 place-items-center px-6 text-center">
+              <div>
+                <UIcon name="i-lucide-search-x" class="mx-auto size-8 text-muted" />
+                <p class="mt-3 font-medium text-highlighted">No matching torrents</p>
+                <p class="mt-1 text-sm text-muted">Try another name, category, tag, or status.</p>
+                <UButton class="mt-3" label="Clear search" color="neutral" variant="soft" size="sm" @click="searchQuery = ''" />
+              </div>
+            </div>
+          </template>
+        </UTable>
       </div>
     </UContextMenu>
 
