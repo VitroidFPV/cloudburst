@@ -21,6 +21,27 @@
   --ui-bg-accented: var(--cloudburst-bg-dark-accented);
 }
 
+/* Mica supplies the window material: app surfaces inside the root become
+   translucent tints over it, while portaled overlays (menus, dialogs, toasts)
+   keep the opaque theme backgrounds above so they stay readable. */
+html.mica,
+html.mica body {
+  background: transparent;
+}
+
+html.mica.dark #__nuxt {
+  --cloudburst-bg-dark: color-mix(in oklab, var(--ui-color-neutral-950) 38%, transparent);
+  --cloudburst-bg-dark-elevated: color-mix(in oklab, var(--ui-color-neutral-950) 26%, transparent);
+  --cloudburst-bg-dark-accented: color-mix(in oklab, var(--ui-color-neutral-900) 55%, transparent);
+}
+
+html.mica:not(.dark) #__nuxt {
+  --ui-bg: color-mix(in oklab, #fff 62%, transparent);
+  --ui-bg-muted: color-mix(in oklab, var(--ui-color-neutral-50) 68%, transparent);
+  --ui-bg-elevated: color-mix(in oklab, var(--ui-color-neutral-100) 74%, transparent);
+  --ui-bg-accented: color-mix(in oklab, var(--ui-color-neutral-200) 78%, transparent);
+}
+
 html {
   background: var(--ui-bg);
 }

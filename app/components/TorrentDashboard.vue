@@ -85,6 +85,7 @@ const onRemoveTags = async (torrentIds: string[], tags: string[]) => {
 }
 
 const settingsOpen = ref(false)
+const appSettingsOpen = ref(false)
 const authenticationMode = ref<AuthenticationMode>('apiKey')
 const connectionForm = reactive({
   endpoint: 'http://localhost:8080',
@@ -485,6 +486,14 @@ onBeforeUnmount(() => {
           <p class="mb-2 px-2 text-xs font-medium text-muted">Categories</p>
           <UNavigationMenu :items="categoryItems" orientation="vertical" />
         </div>
+
+        <div class="mt-6">
+          <p class="mb-2 px-2 text-xs font-medium text-muted">App</p>
+          <UNavigationMenu
+            :items="[{ label: 'Settings', icon: 'i-lucide-settings', onSelect: () => appSettingsOpen = true }]"
+            orientation="vertical"
+          />
+        </div>
       </template>
 
       <template #footer>
@@ -643,6 +652,8 @@ onBeforeUnmount(() => {
       :fetch-metadata="fetchTorrentMetadata"
       @add="addTorrentsFromModal"
     />
+
+  <AppSettingsModal v-model:open="appSettingsOpen" />
 
   <UModal
     v-model:open="magnetHintOpen"
