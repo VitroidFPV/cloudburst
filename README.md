@@ -46,6 +46,28 @@ pnpm generate
 - `Cloudburst.svg` is the source asset for the browser favicon and generated desktop icons.
 - `CONTEXT.md` and `docs/adr/` record the product language and architecture decisions.
 
-Cloudburst retains multiple connection profiles, protects each credential in Windows Credential Manager or the Linux Secret Service, and performs connection resolution when the desktop application starts: the last active profile is attempted first, then the remaining saved profiles, and the first reachable instance wins. The profile store contains only each WebUI URL, authentication mode, optional username, and the id of the last connected profile. Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer, can start, stop, and remove selected torrents from the table toolbar or row context menu — removing a torrent confirms first and keeps the downloaded content unless "Remove and files" is chosen — and retains the last known torrents as stale while reconnecting with capped backoff if the active connection is lost. Torrents are added through a two-step dialog: sources first (magnet links or .torrent URLs one per line, .torrent files via picker or window-wide drag-and-drop), then a review step with category, folder layout, and save location — where a native folder picker appears for local instances — plus a toggleable file tree for single-source adds that lets the user keep or skip individual files before submitting; magnets resolve their file list through qBittorrent's metadata fetch while the dialog stays open. `magnet:` links clicked in the browser open the dialog prefilled — Cloudburst registers the scheme at startup, advertises itself to Windows as a magnet handler (so browsers and the Settings app can offer it), always opens the dialog for review before submitting, and warns with a shortcut to Windows Settings if the system still routes magnet links to another program; the instance reports successes, rejections (usually duplicates), and sources still being fetched. When the active instance is local, the add dialog offers a native folder picker for the save location. Going offline keeps every saved profile; a profile's Connect and Forget actions live in the connection settings.
+## Behavior
+
+### Connections
+
+Cloudburst retains multiple connection profiles and performs connection resolution when the desktop application starts: the last active profile is attempted first, then the remaining saved profiles, and the first reachable instance wins. The profile store contains only each WebUI URL, authentication mode, optional username, and the id of the last connected profile; credentials are kept in Windows Credential Manager or the Linux Secret Service. Going offline keeps every saved profile, and a profile's Connect and Forget actions live in the connection settings.
+
+Plain HTTP is accepted only for loopback addresses; remote qBittorrent connections must use HTTPS. Cloudburst requires qBittorrent 5.2 or newer.
+
+### Torrent management
+
+Torrents can be started, stopped, and removed from the table toolbar or the row context menu. Removing a torrent confirms first and keeps the downloaded content unless "Remove and files" is chosen. When the active connection is lost, the last known torrents stay visible as stale while Cloudburst reconnects with capped backoff.
+
+### Adding torrents
+
+Torrents are added through a two-step dialog: sources first, then a review step. Sources are magnet links or .torrent URLs entered one per line, and .torrent files picked from disk or dropped anywhere on the window. The review step offers a category, folder layout, and save location — with a native folder picker for local instances — plus a toggleable file tree for single-source adds that lets the user keep or skip individual files before submitting. Magnets resolve their file list through qBittorrent's metadata fetch while the dialog stays open.
+
+The instance reports successes, rejections (usually duplicates), and sources still being fetched.
+
+### Magnet links
+
+`magnet:` links clicked in the browser open the dialog prefilled. Cloudburst registers the scheme at startup and advertises itself to Windows as a magnet handler, so browsers and the Settings app can offer it. The dialog always opens for review before submitting, and Cloudburst warns with a shortcut to Windows Settings if the system still routes magnet links to another program.
+
+### System tray
 
 Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.
