@@ -447,7 +447,7 @@ onBeforeUnmount(() => {
       </template>
     </UDashboardSidebar>
 
-    <UDashboardPanel id="torrent-list">
+    <UDashboardPanel id="torrent-list" :ui="{ body: 'gap-0 overflow-hidden p-0 sm:p-0' }">
       <template #body>
         <TorrentTable
           :torrents="visibleTorrents"
@@ -465,12 +465,12 @@ onBeforeUnmount(() => {
         >
           <template #actions>
             <UButton
-              label="Add"
               icon="i-lucide-plus"
               color="neutral"
-              variant="outline"
+              variant="ghost"
               size="sm"
               aria-label="Add torrents"
+              title="Add torrents"
               :disabled="torrentActionsDisabled"
               :loading="activityUpdating"
               @click="openAddModal"
@@ -479,25 +479,27 @@ onBeforeUnmount(() => {
               v-if="connectionEndpoint"
               icon="i-lucide-refresh-cw"
               color="neutral"
-              variant="outline"
+              variant="ghost"
               size="sm"
               aria-label="Refresh torrents"
+              title="Refresh torrents"
               :loading="refreshing"
               :disabled="activityUpdating"
               @click="retryConnection"
             />
             <UButton
-              :label="connectionEndpoint ? 'Connection' : 'Connect qBittorrent'"
               :icon="connectionEndpoint ? 'i-lucide-settings' : 'i-lucide-plug-zap'"
-              :color="connectionEndpoint ? 'neutral' : 'primary'"
-              :variant="connectionEndpoint ? 'outline' : 'solid'"
+              color="neutral"
+              variant="ghost"
               size="sm"
+              :aria-label="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
+              :title="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
               @click="settingsOpen = true"
             />
           </template>
 
           <template #notice>
-            <div v-if="stale" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/35 bg-warning/10 px-4 py-3 text-sm">
+            <div v-if="stale" class="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/35 bg-warning/10 px-4 py-3 text-sm sm:mx-6 sm:mt-6">
               <div class="flex min-w-0 items-start gap-3">
                 <UIcon name="i-lucide-cloud-off" class="mt-0.5 size-4 shrink-0 text-warning" />
                 <div>

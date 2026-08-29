@@ -655,113 +655,113 @@ watch(() => props.autoSelectIds, (ids) => {
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div class="flex min-w-0 items-center gap-2">
-      <h1 class="text-2xl font-semibold text-highlighted">
-        Torrents
-      </h1>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <div class="flex h-(--ui-header-height) shrink-0 items-center justify-between gap-3 border-b border-default px-4 sm:px-6">
+      <div class="flex min-w-0 items-center gap-2">
       <UBadge v-if="selectedCount" :label="`${selectedCount} selected`" color="primary" variant="subtle" />
-    </div>
+      </div>
 
-    <div class="flex shrink-0 items-center gap-2">
-      <div v-if="selectedCount" class="flex items-center gap-1">
+      <div class="flex shrink-0 items-center gap-1">
+        <div v-if="selectedCount" class="flex items-center gap-1 border-r border-default pr-1">
         <UButton
-          label="Start"
           icon="i-lucide-play"
           color="neutral"
           variant="ghost"
           size="sm"
           aria-label="Start selected torrents"
+          title="Start selected torrents"
           :disabled="activityActionsDisabled || !canStartSelected"
           :loading="actionPending"
           @click="emitSelectedActivity(false)"
         />
         <UButton
-          label="Stop"
           icon="i-lucide-square"
           color="neutral"
           variant="ghost"
           size="sm"
           aria-label="Stop selected torrents"
+          title="Stop selected torrents"
           :disabled="activityActionsDisabled || !canStopSelected"
           :loading="actionPending"
           @click="emitSelectedActivity(true)"
         />
         <UButton
-          label="Remove"
           icon="i-lucide-trash-2"
-          color="error"
+          color="neutral"
           variant="ghost"
           size="sm"
           aria-label="Remove selected torrents"
+          title="Remove selected torrents"
           :disabled="activityActionsDisabled"
           :loading="actionPending"
           @click="removeOpen = true"
         />
-      </div>
-      <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
-        <UButton
-          label="Columns"
-          icon="i-lucide-columns-2"
-          color="neutral"
-          variant="outline"
-          size="sm"
-          aria-label="Choose visible columns"
-        />
-      </UDropdownMenu>
-      <slot name="actions" />
-    </div>
-  </div>
-
-  <slot name="notice" />
-
-  <UContextMenu v-if="torrents.length" :items="contextMenuItems">
-    <div class="flex min-h-0 flex-1">
-      <UTable
-        ref="torrentTable"
-        v-model:column-sizing="columnSizing"
-        v-model:column-visibility="columnVisibility"
-        v-model:row-selection="rowSelection"
-        v-model:sorting="sorting"
-        :data="torrents"
-        :columns="columns"
-        :column-sizing-options="{ columnResizeMode: 'onEnd' }"
-        :get-row-id="torrent => torrent.id"
-        :on-contextmenu="prepareRowContextMenu"
-        :on-select="selectRow"
-        :virtualize="{ estimateSize: 65, overscan: 8 }"
-        :style="{ '--torrent-table-width': `${tableWidth}px` }"
-        :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
-        class="torrent-table min-h-0 flex-1"
-      />
-    </div>
-  </UContextMenu>
-
-  <div v-else class="grid min-h-64 flex-1 place-items-center text-center">
-    <slot name="empty" />
-  </div>
-
-  <UModal v-model:open="removeOpen" :title="removeTitle" description="The selected torrents stop being managed.">
-    <template #body>
-      <p class="text-sm text-muted">
-        Choose <span class="text-highlighted">Remove</span> to keep downloaded content on disk, or
-        <span class="text-highlighted">Remove torrent and files</span> to delete it.
-      </p>
-    </template>
-
-    <template #footer>
-      <div class="flex w-full items-center justify-between gap-3">
-        <p class="text-xs text-muted">
-          Removing cannot be undone.
-        </p>
-        <div class="flex gap-2">
-          <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
-          <UButton type="button" label="Remove" color="error" variant="soft" @click="confirmRemoval(false)" />
-          <UButton type="button" label="Remove torrent and files" color="error" variant="solid" @click="confirmRemoval(true)" />
         </div>
+        <UDropdownMenu :items="columnVisibilityItems" :content="{ align: 'end' }">
+          <UButton
+            icon="i-lucide-columns-2"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Choose visible columns"
+            title="Choose visible columns"
+          />
+        </UDropdownMenu>
+        <span class="mx-1 h-5 border-l border-default" />
+        <slot name="actions" />
       </div>
-    </template>
-  </UModal>
+    </div>
+
+    <slot name="notice" />
+
+    <UContextMenu v-if="torrents.length" :items="contextMenuItems">
+      <div class="flex min-h-0 flex-1">
+        <UTable
+          ref="torrentTable"
+          v-model:column-sizing="columnSizing"
+          v-model:column-visibility="columnVisibility"
+          v-model:row-selection="rowSelection"
+          v-model:sorting="sorting"
+          :data="torrents"
+          :columns="columns"
+          :column-sizing-options="{ columnResizeMode: 'onEnd' }"
+          :get-row-id="torrent => torrent.id"
+          :on-contextmenu="prepareRowContextMenu"
+          :on-select="selectRow"
+          :virtualize="{ estimateSize: 65, overscan: 8 }"
+          :style="{ '--torrent-table-width': `${tableWidth}px` }"
+          :ui="{ base: 'min-w-0', th: 'relative overflow-visible' }"
+          class="torrent-table min-h-0 flex-1"
+        />
+      </div>
+    </UContextMenu>
+
+    <div v-else class="grid min-h-64 flex-1 place-items-center px-6 text-center">
+      <slot name="empty" />
+    </div>
+
+    <UModal v-model:open="removeOpen" :title="removeTitle" description="The selected torrents stop being managed.">
+      <template #body>
+        <p class="text-sm text-muted">
+          Choose <span class="text-highlighted">Remove</span> to keep downloaded content on disk, or
+          <span class="text-highlighted">Remove torrent and files</span> to delete it.
+        </p>
+      </template>
+
+      <template #footer>
+        <div class="flex w-full items-center justify-between gap-3">
+          <p class="text-xs text-muted">
+            Removing cannot be undone.
+          </p>
+          <div class="flex gap-2">
+            <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
+            <UButton type="button" label="Remove" color="error" variant="soft" @click="confirmRemoval(false)" />
+            <UButton type="button" label="Remove torrent and files" color="error" variant="solid" @click="confirmRemoval(true)" />
+          </div>
+        </div>
+      </template>
+    </UModal>
+  </div>
 </template>
 
 <style>

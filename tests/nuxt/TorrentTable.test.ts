@@ -44,8 +44,7 @@ describe('TorrentTable', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Torrents')
-    expect(wrapper.text()).toContain('Columns')
+    expect(wrapper.find('[aria-label="Choose visible columns"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('Connection action')
     expect(wrapper.text()).toContain('Stale library')
     expect(wrapper.text()).toContain('No matching torrents')

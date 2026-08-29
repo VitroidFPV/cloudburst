@@ -225,23 +225,16 @@ const onTagsChange = async (value: string[]) => {
 
 <template>
   <div v-if="torrent" class="flex h-full min-h-0 flex-col">
-    <div class="flex items-start justify-between gap-3 border-b border-default px-4 py-3.5">
+    <div class="flex h-(--ui-header-height) shrink-0 items-center justify-between gap-3 border-b border-default px-4 sm:px-6">
       <div class="min-w-0 flex-1">
         <p class="truncate text-sm font-semibold text-highlighted" :title="torrent.name">{{ torrent.name }}</p>
-        <div class="mt-2 flex items-center gap-2">
-          <UBadge :color="statusColor[torrent.status]" variant="subtle" size="sm" class="gap-1">
-            <UIcon :name="statusIcon[torrent.status]" class="size-3" />
-            {{ statusLabel[torrent.status] }}
-          </UBadge>
-          <span class="text-xs text-muted">{{ formatBytes(torrent.size) }}</span>
-        </div>
       </div>
       <UButton
         type="button"
         icon="i-lucide-x"
         color="neutral"
         variant="ghost"
-        size="xs"
+        size="sm"
         aria-label="Close details"
         @click="emit('close')"
       />
@@ -250,15 +243,21 @@ const onTagsChange = async (value: string[]) => {
     <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
       <section class="space-y-3">
         <div class="rounded-xl border border-default bg-elevated/40 p-4 shadow-sm">
-          <div class="mb-3 flex items-end justify-between gap-3">
+          <div class="mb-3 flex items-start justify-between gap-3">
             <div>
-              <p class="text-xs font-medium uppercase tracking-wide text-muted">Progress</p>
-              <p class="mt-1 text-sm text-highlighted">
+              <div class="flex items-center gap-2">
+                <UBadge :color="statusColor[torrent.status]" variant="subtle" size="sm" class="gap-1">
+                  <UIcon :name="statusIcon[torrent.status]" class="size-3" />
+                  {{ statusLabel[torrent.status] }}
+                </UBadge>
+                <span class="text-xs text-muted">{{ formatBytes(torrent.size) }}</span>
+              </div>
+              <p class="mt-2 text-sm text-highlighted">
                 <span class="font-mono font-medium tabular-nums">{{ formatBytes(downloadedTotal) }}</span>
                 <span class="text-muted"> of {{ formatBytes(torrent.size) }}</span>
               </p>
             </div>
-            <p class="font-mono text-2xl font-semibold leading-none tabular-nums text-highlighted">
+            <p class="pt-0.5 font-mono text-2xl font-semibold leading-none tabular-nums text-highlighted">
               {{ progressLabel }}<span class="text-sm text-muted">%</span>
             </p>
           </div>
