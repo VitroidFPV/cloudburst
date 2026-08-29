@@ -604,8 +604,8 @@ const columns: TableColumn<Torrent>[] = [
     enableSorting: false,
     meta: {
       class: {
-        th: 'p-0',
-        td: 'p-0',
+        th: 'layout-spacer p-0',
+        td: 'layout-spacer p-0',
       },
     },
   },
@@ -771,15 +771,19 @@ watch(() => props.autoSelectIds, (ids) => {
   table-layout: fixed;
 }
 
-.torrent-table tbody > tr[data-selectable='true']:hover {
+.torrent-table .layout-spacer {
+  width: 100%;
+}
+
+.torrent-table tbody > tr[data-selectable='true']:hover > td {
   background-color: color-mix(in oklab, var(--ui-bg-accented) 65%, transparent);
 }
 
-.torrent-table tbody > tr[data-selected='true'] {
+.torrent-table tbody > tr[data-selected='true'] > td {
   background-color: color-mix(in oklab, var(--ui-bg-accented) 78%, transparent);
 }
 
-.torrent-table tbody > tr[data-selected='true']:hover {
+.torrent-table tbody > tr[data-selected='true']:hover > td {
   background-color: color-mix(in oklab, var(--ui-bg-accented) 90%, transparent);
 }
 
