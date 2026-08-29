@@ -10,6 +10,7 @@ export interface Torrent {
   id: string
   name: string
   status: TorrentStatus
+  /** Completion percentage in the 0–100 range. */
   progress: number
   size: number
   downloaded: number

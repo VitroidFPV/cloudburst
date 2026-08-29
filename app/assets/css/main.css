@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+@theme {
+  /* --font-sans: "Geist", sans-serif; */
+}
+
 :root {
   --ui-primary: #000;
 }

@@ -8,7 +8,7 @@ const torrent = {
   id: 'abc123',
   name: 'BigBuckBunny_124',
   status: 'downloading' as const,
-  progress: 0.62,
+  progress: 62.5,
   size: 4096,
   downloaded: 2560,
   downSpeed: 1024,
@@ -45,7 +45,10 @@ describe('TorrentDetailPanel', () => {
 
     expect(wrapper.text()).toContain('BigBuckBunny_124')
     expect(wrapper.text()).toContain('Downloading')
-    expect(wrapper.text()).toContain('Save location')
+    expect(wrapper.text()).toContain('62.5%')
+    expect(wrapper.text()).not.toContain('6250%')
+    expect(wrapper.text()).toContain('1.5 KB remaining')
+    expect(wrapper.text()).toContain('Location')
     expect(wrapper.text()).toContain('C:/Downloads')
     expect(wrapper.text()).toContain('Trackers')
     expect(wrapper.text()).toContain('Files')
