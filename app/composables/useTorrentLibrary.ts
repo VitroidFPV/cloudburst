@@ -1,6 +1,8 @@
 import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { REFRESH_CADENCE_INTERVALS_MS, useRefreshCadenceSetting } from '~/composables/useRefreshCadenceSetting'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
+import { uiDebugTorrents } from '~/utils/ui-debug'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
 
@@ -25,19 +27,27 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const operationGeneration = useState('connection-operation-generation', () => 0)
   const defaultSavePath = useState('default-save-path', () => '')
 
+  const { showPlaceholder } = usePlaceholderSetting()
   const { refreshCadence } = useRefreshCadenceSetting()
 
+  // The placeholder list is a display override: the real library state stays
+  // untouched underneath so a real snapshot always survives a toggle.
+  const displayedTorrents = computed(() =>
+    adapter === tauriQbittorrentAdapter && showPlaceholder.value
+      ? uiDebugTorrents
+      : torrents.value)
+
   const filters = computed<TorrentFilter[]>(() => [
-    { id: 'all', label: 'All torrents', icon: 'i-lucide-list-filter', count: torrents.value.length },
-    { id: 'downloading', label: 'Downloading', icon: 'i-lucide-arrow-down-to-line', count: torrents.value.filter(torrent => torrent.status === 'downloading').length },
-    { id: 'seeding', label: 'Seeding', icon: 'i-lucide-arrow-up-from-line', count: torrents.value.filter(torrent => torrent.status === 'seeding').length },
-    { id: 'paused', label: 'Paused', icon: 'i-lucide-pause', count: torrents.value.filter(torrent => torrent.status === 'paused').length },
-    { id: 'attention', label: 'Needs attention', icon: 'i-lucide-triangle-alert', count: torrents.value.filter(torrent => ['stalled', 'error'].includes(torrent.status)).length },
+    { id: 'all', label: 'All torrents', icon: 'i-lucide-list-filter', count: displayedTorrents.value.length },
+    { id: 'downloading', label: 'Downloading', icon: 'i-lucide-arrow-down-to-line', count: displayedTorrents.value.filter(torrent => torrent.status === 'downloading').length },
+    { id: 'seeding', label: 'Seeding', icon: 'i-lucide-arrow-up-from-line', count: displayedTorrents.value.filter(torrent => torrent.status === 'seeding').length },
+    { id: 'paused', label: 'Paused', icon: 'i-lucide-pause', count: displayedTorrents.value.filter(torrent => torrent.status === 'paused').length },
+    { id: 'attention', label: 'Needs attention', icon: 'i-lucide-triangle-alert', count: displayedTorrents.value.filter(torrent => ['stalled', 'error'].includes(torrent.status)).length },
   ])
 
-  const categories = computed(() => [...new Set(torrents.value.map(torrent => torrent.category).filter(Boolean))].sort())
+  const categories = computed(() => [...new Set(displayedTorrents.value.map(torrent => torrent.category).filter(Boolean))].sort())
 
-  const visibleTorrents = computed(() => torrents.value.filter((torrent) => {
+  const visibleTorrents = computed(() => displayedTorrents.value.filter((torrent) => {
     const matchesCategory = !activeCategory.value || torrent.category === activeCategory.value
     const matchesFilter = activeFilter.value === 'all'
       || (activeFilter.value === 'attention' && ['stalled', 'error'].includes(torrent.status))
@@ -46,7 +56,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     return matchesCategory && matchesFilter
   }))
 
-  const transferTotals = computed(() => torrents.value.reduce((totals, torrent) => ({
+  const transferTotals = computed(() => displayedTorrents.value.reduce((totals, torrent) => ({
     down: totals.down + torrent.downSpeed,
     up: totals.up + torrent.upSpeed,
   }), { down: 0, up: 0 }))
@@ -212,7 +222,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const setTorrentsPaused = async (torrentIds: string[], paused: boolean) => {
     const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -237,7 +247,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const removeTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
     const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -262,7 +272,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsOutcome | null> => {
     const hasSources = input.urls.some(url => url.trim()) || input.files.length > 0
-    if (!hasSources || connectionStatus.value !== 'connected' || stale.value) return null
+    if (!hasSources || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -289,7 +299,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const loadDefaultSavePath = async () => {
-    if (defaultSavePath.value || connectionStatus.value !== 'connected' || stale.value) return
+    if (defaultSavePath.value || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return
 
     try {
       defaultSavePath.value = await adapter.defaultSavePath()
@@ -301,7 +311,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const parseTorrentMetadata = async (files: AddTorrentFile[]): Promise<TorrentMetadata[] | null> => {
     const cleaned = files.filter(file => file.name.trim() && file.base64Content.trim())
-    if (!cleaned.length || connectionStatus.value !== 'connected' || stale.value) return null
+    if (!cleaned.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.parseTorrentMetadata(cleaned)
@@ -313,7 +323,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const fetchTorrentMetadata = async (source: string): Promise<MetadataFetch | null> => {
     const trimmed = source.trim()
-    if (!trimmed || connectionStatus.value !== 'connected' || stale.value) return null
+    if (!trimmed || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchTorrentMetadata(trimmed)
@@ -326,7 +336,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   // Detail-panel pollers run on their own cadence and must not interfere
   // with library operations, so they stay outside the operation generation.
   const fetchTorrentProperties = async (torrentId: string): Promise<TorrentProperties | null> => {
-    if (connectionStatus.value !== 'connected' || stale.value) return null
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchTorrentProperties(torrentId)
@@ -337,7 +347,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const fetchTorrentFiles = async (torrentId: string): Promise<TorrentFile[] | null> => {
-    if (connectionStatus.value !== 'connected' || stale.value) return null
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchTorrentFiles(torrentId)
@@ -348,7 +358,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const fetchTorrentTrackers = async (torrentId: string): Promise<TorrentTracker[] | null> => {
-    if (connectionStatus.value !== 'connected' || stale.value) return null
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchTorrentTrackers(torrentId)
@@ -359,7 +369,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const setTorrentFilePriorities = async (torrentId: string, priorities: TorrentFilePriority[]) => {
-    if (!priorities.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!priorities.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -385,7 +395,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const setTorrentCategory = async (torrentIds: string[], category: string) => {
     const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -411,7 +421,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const addTorrentTags = async (torrentIds: string[], tags: string[]) => {
     const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -437,7 +447,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const removeTorrentTags = async (torrentIds: string[], tags: string[]) => {
     const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value) return false
+    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
     const operation = beginOperation()
     activityUpdating.value = true
@@ -462,7 +472,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const fetchCategories = async (): Promise<string[] | null> => {
-    if (connectionStatus.value !== 'connected' || stale.value) return null
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchCategories()
@@ -473,7 +483,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const fetchTags = async (): Promise<string[] | null> => {
-    if (connectionStatus.value !== 'connected' || stale.value) return null
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     try {
       return await adapter.fetchTags()
@@ -561,7 +571,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   return {
-    torrents,
+    torrents: displayedTorrents,
     visibleTorrents,
     filters,
     categories,

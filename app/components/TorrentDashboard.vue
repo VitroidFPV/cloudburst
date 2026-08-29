@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
 import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
+import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { isLoopbackEndpoint } from '~/utils/connection'
 import { formatSpeed } from '~/utils/torrent-format'
 
@@ -12,6 +13,7 @@ interface AddTorrentModalApi {
 }
 
 const toast = useToast()
+const { showPlaceholder } = usePlaceholderSetting()
 const {
   torrents,
   visibleTorrents,
@@ -118,6 +120,7 @@ const categoryItems = computed<NavigationMenuItem[]>(() => [
 ])
 
 const connectionBadge = computed(() => {
+  if (showPlaceholder.value) return { label: 'Placeholder', color: 'neutral' as const }
   if (stale.value) return { label: 'Stale', color: 'warning' as const }
   if (connectionStatus.value === 'connected') return { label: 'Connected', color: 'success' as const }
   if (connectionStatus.value === 'connecting') return { label: 'Connecting', color: 'neutral' as const }
@@ -143,13 +146,16 @@ const connectionDescription = computed(() => {
 })
 
 const connectionDotClass = computed(() => {
+  if (showPlaceholder.value) return 'bg-muted'
   if (stale.value) return 'bg-warning'
   if (connectionStatus.value === 'connected') return 'bg-success'
   if (connectionStatus.value === 'connecting') return 'animate-pulse bg-muted'
   return 'bg-error'
 })
 
-const torrentActionsDisabled = computed(() => connectionStatus.value !== 'connected' || stale.value)
+const torrentActionsDisabled = computed(() => showPlaceholder.value
+  || connectionStatus.value !== 'connected'
+  || stale.value)
 
 const canBrowseFolders = computed(() => typeof window !== 'undefined'
   && '__TAURI_INTERNALS__' in window
@@ -514,7 +520,7 @@ onBeforeUnmount(() => {
             <span class="truncate">{{ connectionDescription }}</span>
             <span v-if="connectionStatus === 'connected' && connectionVersion" class="shrink-0 font-mono">v{{ connectionVersion }}</span>
           </span>
-          <span v-if="connectionStatus === 'connected' && !stale" class="flex items-center justify-between font-mono text-xs text-muted">
+          <span v-if="showPlaceholder || (connectionStatus === 'connected' && !stale)" class="flex items-center justify-between font-mono text-xs text-muted">
             <span>↓ {{ formatSpeed(transferTotals.down) }}</span>
             <span>↑ {{ formatSpeed(transferTotals.up) }}</span>
           </span>
@@ -552,7 +558,7 @@ onBeforeUnmount(() => {
                 @click="openAddModal"
               />
             </UTooltip>
-            <UTooltip v-if="connectionEndpoint" text="Refresh torrents">
+            <UTooltip v-if="connectionEndpoint && !showPlaceholder" text="Refresh torrents">
               <UButton
                 icon="i-lucide-refresh-cw"
                 color="neutral"
@@ -577,7 +583,7 @@ onBeforeUnmount(() => {
           </template>
 
           <template #notice>
-            <div v-if="stale" class="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/35 bg-warning/10 px-4 py-3 text-sm sm:mx-6 sm:mt-6">
+            <div v-if="stale && !showPlaceholder" class="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/35 bg-warning/10 px-4 py-3 text-sm sm:mx-6 sm:mt-6">
               <div class="flex min-w-0 items-start gap-3">
                 <UIcon name="i-lucide-cloud-off" class="mt-0.5 size-4 shrink-0 text-warning" />
                 <div>

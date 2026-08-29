@@ -3,6 +3,7 @@ import type { AppearanceMode } from '~/composables/useAppearanceSetting'
 import type { RefreshCadence } from '~/composables/useRefreshCadenceSetting'
 
 const { appearanceMode, canUseWindowMaterials, setAppearanceMode } = useAppearanceSetting()
+const { placeholderEnabled, placeholderForced, setPlaceholderEnabled } = usePlaceholderSetting()
 const { refreshCadence, setRefreshCadence } = useRefreshCadenceSetting()
 const colorMode = useColorMode()
 
@@ -57,6 +58,11 @@ const refreshCadenceDescriptions: Record<RefreshCadence, string> = {
   normal: 'Check the qBittorrent instance for transfer activity every 5 seconds.',
   slow: 'Check the qBittorrent instance for transfer activity every 15 seconds.',
 }
+
+const placeholderDescription = computed(() => {
+  if (placeholderForced) return 'Always on in the browser preview.'
+  return 'Show a sample torrent list instead of the qBittorrent library — handy for screenshots and demos.'
+})
 </script>
 
 <template>
@@ -121,6 +127,18 @@ const refreshCadenceDescriptions: Record<RefreshCadence, string> = {
               aria-label="Refresh cadence"
               :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
               @update:model-value="setRefreshCadence"
+            />
+          </div>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Placeholder torrents</p>
+              <p class="mt-0.5 text-xs text-muted">{{ placeholderDescription }}</p>
+            </div>
+            <USwitch
+              :model-value="placeholderForced || placeholderEnabled"
+              :disabled="placeholderForced"
+              aria-label="Placeholder torrents"
+              @update:model-value="setPlaceholderEnabled"
             />
           </div>
         </section>

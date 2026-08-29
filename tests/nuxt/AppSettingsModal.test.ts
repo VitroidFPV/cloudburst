@@ -40,12 +40,13 @@ describe('AppSettingsModal', () => {
     ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
   })
 
-  it('offers window material, color mode, and refresh cadence settings', async () => {
+  it('offers window material, color mode, refresh cadence, and placeholder settings', async () => {
     await mountModal()
 
     expect(bodyText()).toContain('Window material')
     expect(bodyText()).toContain('Color mode')
     expect(bodyText()).toContain('Refresh cadence')
+    expect(bodyText()).toContain('Placeholder torrents')
     expect(findRadioOption('Mica')).toBeDefined()
     expect(findRadioOption('Dark')).toBeDefined()
     expect(findRadioOption('Slow')).toBeDefined()
@@ -65,5 +66,19 @@ describe('AppSettingsModal', () => {
     await clickRadio('Slow')
 
     expect(localStorage.getItem('cloudburst:refresh-cadence')).toBe('slow')
+  })
+
+  it('enables the placeholder library from the switch', async () => {
+    await mountModal()
+
+    const placeholderSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Placeholder torrents"]')
+    expect(placeholderSwitch).toBeDefined()
+    expect(placeholderSwitch!.getAttribute('aria-checked')).toBe('false')
+    expect(placeholderSwitch!.hasAttribute('disabled')).toBe(false)
+
+    placeholderSwitch!.click()
+    await flushPromises()
+
+    expect(localStorage.getItem('cloudburst:placeholder-enabled')).toBe('true')
   })
 })

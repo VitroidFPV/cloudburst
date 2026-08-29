@@ -1,6 +1,8 @@
 import { clearNuxtState } from '#app'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import type { QbittorrentAdapter } from '~/adapters/qbittorrent'
+import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { CONNECTION_POLL_INTERVAL_MS, CONNECTION_RETRY_DELAYS_MS, useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import type { AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ResolveOutcome, Torrent } from '~/types/torrent'
 
@@ -426,5 +428,66 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.savedProfile.value).toEqual(profile)
     expect(library.connectionStatus.value).toBe('connected')
     expect(library.torrents.value).toEqual([torrent])
+  })
+})
+
+describe('useTorrentLibrary placeholder library', () => {
+  beforeEach(() => {
+    clearNuxtState()
+    localStorage.clear()
+    ;(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
+  })
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__
+  })
+
+  it('shows the placeholder library while the setting is enabled', () => {
+    localStorage.setItem('cloudburst:placeholder-enabled', 'true')
+
+    const library = useTorrentLibrary()
+
+    expect(library.torrents.value.length).toBeGreaterThan(0)
+    expect(library.connectionStatus.value).toBe('disconnected')
+  })
+
+  it('keeps the real library visible when the setting is disabled', () => {
+    const library = useTorrentLibrary()
+
+    expect(library.torrents.value).toEqual([])
+  })
+
+  it('does not show placeholders for custom adapters', () => {
+    localStorage.setItem('cloudburst:placeholder-enabled', 'true')
+
+    const library = useTorrentLibrary(createAdapter())
+
+    expect(library.torrents.value).toEqual([])
+  })
+
+  it('swaps to the placeholder list at runtime without disturbing the real library', async () => {
+    useState<Torrent[]>('torrent-library', () => []).value = [torrent]
+    const library = useTorrentLibrary()
+    expect(library.torrents.value).toEqual([torrent])
+
+    usePlaceholderSetting().setPlaceholderEnabled(true)
+    await nextTick()
+    expect(library.torrents.value.length).toBeGreaterThan(0)
+
+    usePlaceholderSetting().setPlaceholderEnabled(false)
+    await nextTick()
+
+    expect(library.torrents.value).toEqual([torrent])
+  })
+
+  it('hides placeholder torrents when the setting is disabled at runtime', async () => {
+    localStorage.setItem('cloudburst:placeholder-enabled', 'true')
+    const library = useTorrentLibrary()
+    expect(library.torrents.value.length).toBeGreaterThan(0)
+
+    usePlaceholderSetting().setPlaceholderEnabled(false)
+    await nextTick()
+
+    expect(library.torrents.value).toEqual([])
   })
 })
