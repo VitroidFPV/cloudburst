@@ -36,6 +36,23 @@ pnpm typecheck
 pnpm generate
 ```
 
+## Releases
+
+Pull requests and pushes to `main` run the frontend lint, typecheck, tests, static build, and Rust tests in GitHub Actions. Pull requests also produce unsigned Windows, macOS, and Linux preview packages; download them from the **Artifacts** section of the PR's `PR preview builds` workflow run.
+
+Releases use semantic versions and Git tags. Prepare a release with:
+
+```sh
+pnpm release:prepare 0.2.0
+pnpm install --lockfile-only
+git add package.json pnpm-lock.yaml src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+git commit -m "Release: 0.2.0"
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+The tag starts builds for Windows, macOS, and Linux and creates a draft GitHub Release with generated notes and the platform installers attached. Review and publish the draft in GitHub. The generated packages are unsigned; configure the platform signing secrets before presenting them as trusted production downloads.
+
 ## Current structure
 
 - `app/components/TorrentDashboard.vue` owns the application layout and connection orchestration.
