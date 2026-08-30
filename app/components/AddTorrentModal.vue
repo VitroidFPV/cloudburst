@@ -2,6 +2,7 @@
 import type { AddContentLayout, AddTorrentFile, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
 import { formatBytes } from '~/utils/torrent-format'
 import { fileToBase64 } from '~/utils/torrent-file'
+import { commonRootFolder } from '~/utils/torrent-file-tree'
 
 const props = defineProps<{
   categories: string[]
@@ -40,10 +41,10 @@ const fileInput = useTemplateRef<HTMLInputElement>('fileInput')
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 
 const folderLayoutItems = [
-  { label: "Torrent's own folders", value: 'original' },
-  { label: 'Always create a new folder', value: 'subfolder' },
-  { label: 'No folder', value: 'noSubfolder' },
-] satisfies Array<{ label: string, value: AddContentLayout }>
+  { label: 'Default', value: 'original', icon: 'i-lucide-folder-dot' },
+  { label: 'Folder', value: 'subfolder', icon: 'i-lucide-folder-plus' },
+  { label: 'No Folder', value: 'noSubfolder', icon: 'i-lucide-folder-x' },
+] satisfies Array<{ label: string, value: AddContentLayout, icon: string }>
 
 const sourceCount = computed(() => urlsText.value.split(/\r?\n/).filter(line => line.trim()).length + chosenFiles.value.length)
 const isReview = computed(() => step.value === 'review')
@@ -54,13 +55,18 @@ const modalDescription = computed(() => isReview.value
 const submitLabel = computed(() => sourceCount.value === 1 ? 'Add torrent' : `Add ${sourceCount.value} torrents`)
 const saveLocationPlaceholder = computed(() => props.defaultSavePath ? `Default: ${props.defaultSavePath}` : 'Instance default save location')
 const treePaneVisible = computed(() => isReview.value && singleSource.value !== null)
+const submittedContentLayout = computed<AddContentLayout>(() => (
+  contentLayout.value === 'subfolder' && metadata.value && commonRootFolder(metadata.value.files)
+    ? 'original'
+    : contentLayout.value
+))
 
 const parseUrlList = () => urlsText.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
 
 const commonOptions = () => ({
   category: category.value.trim() || undefined,
   savePath: savePath.value.trim() || undefined,
-  contentLayout: contentLayout.value,
+  contentLayout: submittedContentLayout.value,
 })
 
 const resetForm = () => {
@@ -263,7 +269,7 @@ defineExpose({ openWith, close })
     v-model:open="open"
     :title="modalTitle"
     :description="modalDescription"
-    :ui="{ content: treePaneVisible ? 'max-w-6xl' : 'max-w-3xl' }"
+    :ui="{ content: treePaneVisible ? 'max-w-7xl' : 'max-w-3xl' }"
   >
     <template #body>
       <div v-if="step === 'sources'" class="space-y-5">
@@ -341,7 +347,16 @@ defineExpose({ openWith, close })
               </UFormField>
 
               <UFormField label="Folder layout">
-                <USelect v-model="contentLayout" class="w-full" :items="folderLayoutItems" aria-label="Folder layout" />
+                <URadioGroup
+                  v-model="contentLayout"
+                  :items="folderLayoutItems"
+                  variant="table"
+                  orientation="horizontal"
+                  indicator="hidden"
+                  size="sm"
+                  aria-label="Folder layout"
+                  :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center text-center', wrapper: 'items-center' }"
+                />
               </UFormField>
             </div>
 

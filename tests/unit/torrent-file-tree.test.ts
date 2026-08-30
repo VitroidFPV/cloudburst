@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildFileTree,
+  commonRootFolder,
   fileIconFor,
   priorityForRating,
   priorityLabel,
@@ -102,6 +103,18 @@ describe('buildFileTree', () => {
     expect(untouched.map(file => file.path)).toEqual(['a/first.bin', 'b/second.bin'])
 
     const single = stripRootFolder([{ path: 'only/file.bin', length: 1 }])
-    expect(single[0]!.path).toBe('only/file.bin')
+    expect(single[0]!.path).toBe('file.bin')
+  })
+
+  it('recognizes a root folder shared by every file', () => {
+    expect(commonRootFolder([
+      { path: 'Show/ep1.mkv', length: 1 },
+      { path: 'Show/extras/notes.txt', length: 2 },
+    ])).toBe('Show')
+    expect(commonRootFolder([{ path: 'Show/only.mkv', length: 1 }])).toBe('Show')
+    expect(commonRootFolder([
+      { path: 'Show/ep1.mkv', length: 1 },
+      { path: 'readme.txt', length: 2 },
+    ])).toBeNull()
   })
 })

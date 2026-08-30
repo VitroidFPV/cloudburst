@@ -3,6 +3,7 @@ import type { AddContentLayout, TorrentMetadataFile } from '~/types/torrent'
 import { formatBytes } from '~/utils/torrent-format'
 import {
   buildFileTree,
+  commonRootFolder,
   fileIconFor,
   priorityForRating,
   priorityLabel,
@@ -30,6 +31,7 @@ const collapsedFolders = ref<Set<string>>(new Set())
 const treeRoots = computed(() => {
   if (props.layout === 'subfolder') {
     const children = buildFileTree(props.files)
+    if (commonRootFolder(props.files)) return children
     return [{
       name: props.folderName || 'Torrent',
       path: props.folderName || 'Torrent',
