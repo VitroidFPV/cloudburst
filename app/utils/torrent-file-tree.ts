@@ -18,6 +18,14 @@ export interface TorrentTreeFileInput {
 
 const segmentPattern = /[\\/]/
 
+export const commonRootFolder = (files: TorrentTreeFileInput[]): string | null => {
+  if (!files.length) return null
+  const segments = files.map(file => file.path.split(segmentPattern).filter(Boolean))
+  const root = segments[0]?.[0]
+  if (!root || !segments.every(segment => segment.length > 1 && segment[0] === root)) return null
+  return root
+}
+
 export const buildFileTree = (files: TorrentTreeFileInput[]): TorrentFileTreeNode[] => {
   const roots: TorrentFileTreeNode[] = []
 
@@ -135,11 +143,9 @@ export const fileIconFor = (path: string) => {
 // file, the way qBittorrent strips it before placing files in the save
 // location. Torrents without a common root are left untouched.
 export const stripRootFolder = (files: TorrentTreeFileInput[]) => {
-  if (files.length < 2) return files
-
+  const root = commonRootFolder(files)
+  if (!root) return files
   const segments = files.map(file => file.path.split(segmentPattern).filter(Boolean))
-  const root = segments[0]![0]
-  if (!root || !segments.every(segment => segment[0] === root)) return files
 
   return files.map((file, index) => {
     const stripped = segments[index]!.slice(1).join('/')

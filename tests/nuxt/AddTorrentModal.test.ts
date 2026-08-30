@@ -106,6 +106,28 @@ describe('AddTorrentModal', () => {
     })
   })
 
+  it('chooses the folder layout from the large radio options', async () => {
+    const wrapper = await mountModal()
+    ;(wrapper.vm as unknown as { openWith: (options?: { urls?: string[] }) => void })
+      .openWith({ urls: ['magnet:?xt=urn:btih:abc', 'magnet:?xt=urn:btih:def'] })
+    await flushPromises()
+
+    await clickButtonWithLabel('Continue')
+
+    const layoutGroup = findInModal<HTMLElement>('[role="radiogroup"][aria-label="Folder layout"]')[0]
+    expect(layoutGroup).toBeDefined()
+    const noFolderLabel = Array.from(layoutGroup!.querySelectorAll('label'))
+      .find(option => option.textContent?.trim() === 'No Folder')
+    expect(noFolderLabel).toBeDefined()
+    const noFolderOption = noFolderLabel!.querySelector<HTMLButtonElement>('[role="radio"]')
+    expect(noFolderOption).toBeDefined()
+    noFolderOption!.click()
+    await flushPromises()
+
+    await clickButtonWithLabel('Add 2 torrents')
+    expect(emittedInput(wrapper).contentLayout).toBe('noSubfolder')
+  })
+
   it('shows the file tree for a magnet with metadata and applies partial selection', async () => {
     const fetchMetadata = async (): Promise<MetadataFetch> => ({
       status: 'ready',
@@ -138,6 +160,35 @@ describe('AddTorrentModal', () => {
 
     expect(emittedInput(wrapper).urls).toEqual(['magnet:?xt=urn:btih:abc'])
     expect(emittedInput(wrapper).filePriorities).toEqual([1, 0])
+  })
+
+  it('preserves an existing torrent root when Folder is selected', async () => {
+    const fetchMetadata = async (): Promise<MetadataFetch> => ({
+      status: 'ready',
+      metadata: {
+        hash: 'v2hash',
+        name: 'Show.S01',
+        files: [
+          { path: 'Show.S01/ep1.mkv', length: 1000 },
+          { path: 'Show.S01/ep2.mkv', length: 2000 },
+        ],
+      },
+    })
+    const wrapper = await mountModal({ fetchMetadata })
+    ;(wrapper.vm as unknown as { openWith: (options?: { urls?: string[] }) => void })
+      .openWith({ urls: ['magnet:?xt=urn:btih:abc'] })
+    await flushPromises()
+
+    await clickButtonWithLabel('Continue')
+    await flushPromises()
+
+    const folderLabel = Array.from(document.body.querySelectorAll('label'))
+      .find(option => option.textContent?.trim() === 'Folder')
+    folderLabel!.querySelector<HTMLButtonElement>('[role="radio"]')!.click()
+    await flushPromises()
+    await clickButtonWithLabel('Add torrent')
+
+    expect(emittedInput(wrapper).contentLayout).toBe('original')
   })
 
   it('adds a parsed single file by hash so priorities can apply', async () => {

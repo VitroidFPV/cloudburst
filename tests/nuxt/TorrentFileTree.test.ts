@@ -134,11 +134,18 @@ describe('TorrentFileTree', () => {
     ]
 
     const subfolder = await mountSuspended(TorrentFileTree, {
-      props: { files: rootedFiles, layout: 'subfolder', folderName: 'New Folder' },
+      props: {
+        files: [
+          { path: 'ep1.mkv', length: 1000 },
+          { path: 'ep2.mkv', length: 2000 },
+        ],
+        layout: 'subfolder',
+        folderName: 'New Folder',
+      },
     })
     await flushPromises()
     expect(subfolder.text()).toContain('New Folder')
-    expect(subfolder.text()).toContain('Show.S01')
+    expect(subfolder.text()).toContain('ep1.mkv')
 
     const noSubfolder = await mountSuspended(TorrentFileTree, {
       props: { files: rootedFiles, layout: 'noSubfolder' },
@@ -147,5 +154,22 @@ describe('TorrentFileTree', () => {
     expect(noSubfolder.text()).toContain('ep1.mkv')
     expect(noSubfolder.find('[role="checkbox"][aria-label="Include Show.S01"]').exists()).toBe(false)
     expect(noSubfolder.findAll('[role="radiogroup"]')).toHaveLength(3)
+  })
+
+  it('does not duplicate an existing root when folder layout is selected', async () => {
+    const folderName = 'Jet Lag The Game - S19E02'
+    const wrapper = await mountSuspended(TorrentFileTree, {
+      props: {
+        files: [
+          { path: `${folderName}/episode.mkv`, length: 1000 },
+          { path: `${folderName}/episode.vtt`, length: 50 },
+        ],
+        layout: 'subfolder',
+        folderName,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll(`[role="checkbox"][aria-label="Include ${folderName}"]`)).toHaveLength(1)
   })
 })
