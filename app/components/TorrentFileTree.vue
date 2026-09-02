@@ -145,8 +145,8 @@ watch(() => props.priorities, () => emitChange())
         {{ selectedSize === totalSize ? formatBytes(totalSize) : `${formatBytes(selectedSize)} of ${formatBytes(totalSize)}` }}
       </p>
       <div class="flex items-center gap-1">
-        <UButton type="button" label="All" color="neutral" variant="ghost" size="xs" aria-label="Set all files to normal priority" @click="selectAll(true)" />
-        <UButton type="button" label="None" color="neutral" variant="ghost" size="xs" aria-label="Skip all files" @click="selectAll(false)" />
+        <UButton type="button" label="All" color="neutral" variant="outline" size="xs" aria-label="Set all files to normal priority" @click="selectAll(true)" />
+        <UButton type="button" label="None" color="neutral" variant="outline" size="xs" aria-label="Skip all files" @click="selectAll(false)" />
       </div>
     </div>
 

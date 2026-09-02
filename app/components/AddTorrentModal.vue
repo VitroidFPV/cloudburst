@@ -25,12 +25,14 @@ interface ChosenFile {
 
 type SingleSource = { kind: 'file', file: ChosenFile } | { kind: 'url', url: string }
 
+const rememberedSavePathStorageKey = 'cloudburst:last-save-path'
 const open = ref(false)
 const step = ref<'sources' | 'review'>('sources')
 const urlsText = ref('')
 const chosenFiles = ref<ChosenFile[]>([])
 const category = ref('')
 const savePath = ref('')
+const rememberSavePath = ref(false)
 const contentLayout = ref<AddContentLayout>('original')
 const singleSource = ref<SingleSource | null>(null)
 const metadata = ref<TorrentMetadata | null>(null)
@@ -69,12 +71,20 @@ const commonOptions = () => ({
   contentLayout: submittedContentLayout.value,
 })
 
+const emitAdd = (input: AddTorrentsInput) => {
+  const path = savePath.value.trim()
+  if (rememberSavePath.value && path) localStorage.setItem(rememberedSavePathStorageKey, path)
+  else localStorage.removeItem(rememberedSavePathStorageKey)
+  emit('add', input)
+}
+
 const resetForm = () => {
   step.value = 'sources'
   urlsText.value = ''
   chosenFiles.value = []
   category.value = ''
-  savePath.value = ''
+  savePath.value = localStorage.getItem(rememberedSavePathStorageKey) || ''
+  rememberSavePath.value = Boolean(savePath.value)
   contentLayout.value = 'original'
   resetMetadataState()
 }
@@ -218,7 +228,7 @@ const submit = async () => {
     const partialSelection = treeSelection.value !== null && !treeSelection.value.allSelected
 
     if (singleSource.value.kind === 'url') {
-      emit('add', {
+      emitAdd({
         urls: [singleSource.value.url],
         files: [],
         ...commonOptions(),
@@ -233,7 +243,7 @@ const submit = async () => {
     const hash = parsed?.[0]?.hash
 
     if (hash) {
-      emit('add', {
+      emitAdd({
         urls: [hash],
         files: [],
         ...commonOptions(),
@@ -243,7 +253,7 @@ const submit = async () => {
     }
 
     // The instance could not read the file; fall back to a plain upload.
-    emit('add', { urls: [], files: [{ name: source.file.name, base64Content }], ...commonOptions() })
+    emitAdd({ urls: [], files: [{ name: source.file.name, base64Content }], ...commonOptions() })
     return
   }
 
@@ -256,7 +266,7 @@ const submit = async () => {
   catch {
     return
   }
-  emit('add', { urls, files, ...commonOptions() })
+  emitAdd({ urls, files, ...commonOptions() })
 }
 
 onBeforeUnmount(clearPolling)
@@ -374,6 +384,10 @@ defineExpose({ openWith, close })
                   :disabled="pending"
                   @click="browseForFolder"
                 />
+              </div>
+              <div class="mt-2 flex items-center justify-between gap-3">
+                <span class="text-sm text-highlighted">Remember this location for future torrents</span>
+                <USwitch v-model="rememberSavePath" aria-label="Remember this location for future torrents" />
               </div>
             </UFormField>
 
