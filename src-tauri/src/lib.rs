@@ -1,5 +1,6 @@
 mod connection_profile;
 mod magnet_handler;
+mod notification;
 mod qbittorrent;
 mod tray;
 mod window_appearance;
@@ -14,6 +15,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(qbittorrent::ConnectionManager::default())
         .setup(|app| {
             tray::setup(app)?;
@@ -31,6 +33,10 @@ pub fn run() {
                 if let Err(error) = magnet_handler::register_capability_keys() {
                     eprintln!("failed to register Cloudburst's magnet capabilities: {error}");
                 }
+            }
+            #[cfg(all(debug_assertions, windows))]
+            if let Err(error) = notification::register_development_identity(app.handle()) {
+                eprintln!("failed to register Cloudburst's notification identity: {error}");
             }
             Ok(())
         })
@@ -60,6 +66,7 @@ pub fn run() {
             qbittorrent::disconnect_qbittorrent,
             magnet_handler::magnet_handler_status,
             magnet_handler::open_default_apps_settings,
+            notification::send_torrent_notification,
             window_appearance::set_window_caption_color
         ])
         .run(tauri::generate_context!())

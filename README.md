@@ -88,3 +88,7 @@ The instance reports successes, rejections (usually duplicates), and sources sti
 ### System tray
 
 Closing the desktop window hides Cloudburst in the system tray; use the tray icon or **Show Cloudburst** to restore it, and **Quit Cloudburst** to exit the process.
+
+### Notifications
+
+Native torrent notifications can be enabled in the application settings. Cloudburst notifies when a known torrent finishes downloading or enters an error state; loading an existing library does not produce notifications.

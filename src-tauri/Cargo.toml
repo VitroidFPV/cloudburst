@@ -21,6 +21,7 @@ tauri-build = { version = "2.6.3", features = [] }
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
@@ -30,5 +31,6 @@ tokio = { version = "1.47.1", features = ["sync"] }
 base64 = "0.22.1"
 
 [target."cfg(windows)".dependencies]
+tauri-winrt-notification = "0.7.3"
 windows-registry = "0.6.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Dwm"] }
