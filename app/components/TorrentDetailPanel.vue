@@ -362,6 +362,7 @@ const onTagsChange = async (value: string[]) => {
               placeholder="Uncategorized"
               aria-label="Category"
               class="w-full"
+              :ui="{ base: 'min-h-8' }"
               @update:model-value="onCategoryChange"
             />
           </UFormField>
@@ -376,6 +377,7 @@ const onTagsChange = async (value: string[]) => {
               placeholder="No tags"
               aria-label="Tags"
               class="w-full"
+              :ui="{ base: 'min-h-8' }"
               @update:model-value="onTagsChange"
             />
           </UFormField>

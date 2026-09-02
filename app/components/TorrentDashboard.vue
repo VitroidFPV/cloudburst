@@ -555,18 +555,17 @@ onBeforeUnmount(() => {
           @toggle-details="toggleDetails"
         >
           <template #actions>
-            <UTooltip text="Add torrents">
-              <UButton
-                icon="i-lucide-plus"
-                color="primary"
-                variant="soft"
-                size="sm"
-                aria-label="Add torrents"
-                :disabled="torrentActionsDisabled"
-                :loading="activityUpdating"
-                @click="openAddModal"
-              />
-            </UTooltip>
+            <UButton
+              label="Add torrent"
+              icon="i-lucide-plus"
+              color="primary"
+              variant="solid"
+              size="xs"
+              aria-label="Add torrents"
+              :disabled="torrentActionsDisabled"
+              :loading="activityUpdating"
+              @click="openAddModal"
+            />
             <UTooltip v-if="connectionEndpoint && !showPlaceholder" text="Refresh torrents">
               <UButton
                 icon="i-lucide-refresh-cw"
@@ -577,16 +576,6 @@ onBeforeUnmount(() => {
                 :loading="refreshing"
                 :disabled="activityUpdating"
                 @click="retryConnection"
-              />
-            </UTooltip>
-            <UTooltip :text="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'">
-              <UButton
-                :icon="connectionEndpoint ? 'i-lucide-settings' : 'i-lucide-plug-zap'"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                :aria-label="connectionEndpoint ? 'Connection settings' : 'Connect qBittorrent'"
-                @click="settingsOpen = true"
               />
             </UTooltip>
           </template>

@@ -94,19 +94,25 @@ describe('TorrentTable', () => {
     const modal = document.body
 
     expect(modal.textContent).toContain('Remove torrent')
+    expect(modal.textContent).toContain('Also remove downloaded files')
     expect(wrapper.emitted('remove-torrents')).toBeUndefined()
 
     const removeButtons = Array.from(modal.querySelectorAll('button'))
-      .filter(button => ['Remove', 'Remove torrent and files'].includes(button.textContent?.trim() || ''))
+      .filter(button => button.textContent?.trim() === 'Remove')
 
-    await removeButtons.find(button => button.textContent?.trim() === 'Remove')!.click()
+    expect(removeButtons).toHaveLength(1)
+    removeButtons[0]!.click()
     await flushPromises()
     expect(wrapper.emitted('remove-torrents')).toEqual([[['torrent-1'], false]])
 
     await wrapper.get('[aria-label="Remove selected torrents"]').trigger('click')
     await flushPromises()
-    await Array.from(document.body.querySelectorAll('button'))
-      .find(button => button.textContent?.trim() === 'Remove torrent and files')!.click()
+    const removeFiles = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="switch"]')).at(-1)
+    expect(removeFiles).toBeDefined()
+    removeFiles!.click()
+    await flushPromises()
+    Array.from(document.body.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === 'Remove')!.click()
     await flushPromises()
 
     expect(wrapper.emitted('remove-torrents')).toEqual([

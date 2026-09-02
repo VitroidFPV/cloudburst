@@ -1,6 +1,6 @@
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import AddTorrentModal from '~/components/AddTorrentModal.vue'
 import type { AddTorrentFile, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
 
@@ -56,6 +56,8 @@ const emittedInput = (wrapper: VueWrapper) =>
   (wrapper.emitted('add') as Array<[AddTorrentsInput]>).at(-1)![0]
 
 describe('AddTorrentModal', () => {
+  beforeEach(() => localStorage.clear())
+
   it('walks a two-step flow for a single magnet and adds it unmodified', async () => {
     const wrapper = await mountModal()
     ;(wrapper.vm as unknown as { openWith: (options?: object) => void }).openWith()
@@ -126,6 +128,34 @@ describe('AddTorrentModal', () => {
 
     await clickButtonWithLabel('Add 2 torrents')
     expect(emittedInput(wrapper).contentLayout).toBe('noSubfolder')
+  })
+
+  it('remembers a submitted save location for future torrents when opted in', async () => {
+    const wrapper = await mountModal()
+    const sources = ['magnet:?xt=urn:btih:abc', 'magnet:?xt=urn:btih:def']
+    ;(wrapper.vm as unknown as { openWith: (options?: { urls?: string[] }) => void }).openWith({ urls: sources })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+
+    const saveLocation = findInModal<HTMLInputElement>('[aria-label="Save location"]')[0]!
+    saveLocation.value = 'D:/Torrents'
+    saveLocation.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    const remember = findInModal<HTMLButtonElement>('[role="switch"]')[0]!
+    remember.click()
+    await flushPromises()
+    await clickButtonWithLabel('Add 2 torrents')
+
+    expect(localStorage.getItem('cloudburst:last-save-path')).toBe('D:/Torrents')
+    expect(emittedInput(wrapper).savePath).toBe('D:/Torrents')
+
+    ;(wrapper.vm as unknown as { openWith: (options?: { urls?: string[] }) => void }).openWith({ urls: sources })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+
+    expect(findInModal<HTMLInputElement>('[aria-label="Save location"]')[0]!.value).toBe('D:/Torrents')
+    expect(findInModal<HTMLButtonElement>('[role="switch"]')[0]!.getAttribute('data-state')).toBe('checked')
   })
 
   it('shows the file tree for a magnet with metadata and applies partial selection', async () => {

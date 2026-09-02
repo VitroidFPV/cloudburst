@@ -121,7 +121,12 @@ const emitSelectedActivity = (paused: boolean) => {
 }
 
 const removeOpen = ref(false)
+const removeFiles = ref(false)
 const removeTitle = computed(() => `Remove ${selectedCount.value === 1 ? 'torrent' : `${selectedCount.value} torrents`}`)
+
+watch(removeOpen, (open) => {
+  if (open) removeFiles.value = false
+})
 
 const confirmRemoval = (deleteFiles: boolean) => {
   if (!selectedCount.value || activityActionsDisabled.value) return
@@ -874,10 +879,13 @@ watch(() => props.autoSelectIds, (ids) => {
 
     <UModal v-model:open="removeOpen" :title="removeTitle" description="The selected torrents stop being managed.">
       <template #body>
-        <p class="text-sm text-muted">
-          Choose <span class="text-highlighted">Remove</span> to keep downloaded content on disk, or
-          <span class="text-highlighted">Remove torrent and files</span> to delete it.
-        </p>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-sm font-medium text-highlighted">Also remove downloaded files</p>
+            <p class="mt-0.5 text-xs text-muted">Deletes the downloaded content from disk.</p>
+          </div>
+          <USwitch v-model="removeFiles" aria-label="Also remove downloaded files" />
+        </div>
       </template>
 
       <template #footer>
@@ -887,8 +895,7 @@ watch(() => props.autoSelectIds, (ids) => {
           </p>
           <div class="flex gap-2">
             <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
-            <UButton type="button" label="Remove" color="error" variant="soft" @click="confirmRemoval(false)" />
-            <UButton type="button" label="Remove torrent and files" color="error" variant="solid" @click="confirmRemoval(true)" />
+            <UButton type="button" label="Remove" color="error" variant="solid" @click="confirmRemoval(removeFiles)" />
           </div>
         </div>
       </template>
