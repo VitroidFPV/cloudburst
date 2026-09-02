@@ -14,6 +14,7 @@ interface AddTorrentModalApi {
 
 const toast = useToast()
 const { showPlaceholder } = usePlaceholderSetting()
+const { sendTorrentNotification } = useTorrentNotificationSetting()
 const {
   torrents,
   visibleTorrents,
@@ -464,6 +465,14 @@ onMounted(() => {
   stopAutoRefresh = startAutoRefresh()
   void listenForMagnetLinks()
   void checkMagnetHandler()
+})
+
+watch(torrents, (current, previous) => {
+  if (showPlaceholder.value || connectionStatus.value !== 'connected') return
+
+  for (const notification of collectTorrentNotifications(previous, current)) {
+    void sendTorrentNotification(notification)
+  }
 })
 
 onBeforeUnmount(() => {

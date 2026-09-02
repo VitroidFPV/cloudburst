@@ -5,6 +5,11 @@ import type { RefreshCadence } from '~/composables/useRefreshCadenceSetting'
 const { appearanceMode, canUseWindowMaterials, setAppearanceMode } = useAppearanceSetting()
 const { placeholderEnabled, placeholderForced, setPlaceholderEnabled } = usePlaceholderSetting()
 const { refreshCadence, setRefreshCadence } = useRefreshCadenceSetting()
+const {
+  notificationsEnabled,
+  canUseNotifications,
+  setNotificationsEnabled,
+} = useTorrentNotificationSetting()
 const colorMode = useColorMode()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -63,6 +68,10 @@ const placeholderDescription = computed(() => {
   if (placeholderForced) return 'Always on in the browser preview.'
   return 'Show a sample torrent list instead of the qBittorrent library — handy for screenshots and demos.'
 })
+
+const notificationDescription = canUseNotifications
+  ? 'Notify when a torrent finishes downloading or encounters an error.'
+  : 'Available in the Cloudburst desktop app.'
 </script>
 
 <template>
@@ -127,6 +136,18 @@ const placeholderDescription = computed(() => {
               aria-label="Refresh cadence"
               :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
               @update:model-value="setRefreshCadence"
+            />
+          </div>
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Torrent notifications</p>
+              <p class="mt-0.5 text-xs text-muted">{{ notificationDescription }}</p>
+            </div>
+            <USwitch
+              :model-value="canUseNotifications && notificationsEnabled"
+              :disabled="!canUseNotifications"
+              aria-label="Torrent notifications"
+              @update:model-value="setNotificationsEnabled"
             />
           </div>
           <div class="flex items-start justify-between gap-3">
