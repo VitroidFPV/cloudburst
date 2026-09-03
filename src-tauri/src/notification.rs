@@ -1,4 +1,4 @@
-#[cfg(all(windows, debug_assertions))]
+#[cfg(windows)]
 pub fn register_development_identity(app: &tauri::AppHandle) -> Result<(), String> {
     let identifier = &app.config().identifier;
     let display_name = app.config().product_name.as_deref().unwrap_or(identifier);
@@ -22,16 +22,17 @@ pub fn send_torrent_notification(
     title: String,
     body: String,
 ) -> Result<(), String> {
-    #[cfg(all(windows, debug_assertions))]
+    #[cfg(windows)]
     {
-        return tauri_winrt_notification::Toast::new(&app.config().identifier)
-            .title(&title)
-            .text1(&body)
-            .show()
-            .map_err(|error| format!("Could not show the notification: {error}"));
+        if crate::build_flavor::is_development(&app) {
+            return tauri_winrt_notification::Toast::new(&app.config().identifier)
+                .title(&title)
+                .text1(&body)
+                .show()
+                .map_err(|error| format!("Could not show the notification: {error}"));
+        }
     }
 
-    #[cfg(not(all(windows, debug_assertions)))]
     {
         use tauri_plugin_notification::NotificationExt;
 

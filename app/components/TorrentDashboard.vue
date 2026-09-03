@@ -13,6 +13,7 @@ interface AddTorrentModalApi {
 }
 
 const toast = useToast()
+const { appName } = useRuntimeConfig().public
 const { showPlaceholder } = usePlaceholderSetting()
 const { sendTorrentNotification } = useTorrentNotificationSetting()
 const {
@@ -487,7 +488,7 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="flex items-center gap-2 px-1">
           <UIcon name="i-lucide-cloud-rain" class="size-5 text-primary" />
-          <span class="font-semibold text-highlighted">Cloudburst</span>
+          <span class="font-semibold text-highlighted">{{ appName }}</span>
         </div>
       </template>
 

@@ -9,12 +9,30 @@ const SHOW_MENU_ID: &str = "tray.show";
 const QUIT_MENU_ID: &str = "tray.quit";
 
 pub fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
-    let show = MenuItem::with_id(app, SHOW_MENU_ID, "Show Cloudburst", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, QUIT_MENU_ID, "Quit Cloudburst", true, None::<&str>)?;
+    let app_name = app
+        .config()
+        .product_name
+        .as_deref()
+        .unwrap_or("Cloudburst")
+        .to_string();
+    let show = MenuItem::with_id(
+        app,
+        SHOW_MENU_ID,
+        format!("Show {app_name}"),
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(
+        app,
+        QUIT_MENU_ID,
+        format!("Quit {app_name}"),
+        true,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
 
     let mut tray = TrayIconBuilder::new()
-        .tooltip("Cloudburst")
+        .tooltip(app_name)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
