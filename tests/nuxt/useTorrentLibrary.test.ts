@@ -80,6 +80,7 @@ const createAdapter = (overrides: Partial<QbittorrentAdapter> = {}): Qbittorrent
   fetchTorrentProperties: unexpected,
   fetchTorrentFiles: unexpected,
   fetchTorrentTrackers: unexpected,
+  performTorrentContentAction: unexpected,
   setTorrentFilePriorities: unexpected,
   setTorrentCategory: unexpected,
   addTorrentTags: unexpected,
@@ -194,6 +195,22 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.stale.value).toBe(false)
     expect(library.torrents.value).toEqual([torrent])
     expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
+  })
+
+  it('runs content actions without refreshing the torrent library', async () => {
+    const performTorrentContentAction = vi.fn().mockResolvedValue(undefined)
+    const refresh = vi.fn()
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      performTorrentContentAction,
+      refresh,
+    }))
+
+    await library.connect(connectionInput)
+
+    expect(await library.performTorrentContentAction('torrent-1', 'open', 3)).toBe(true)
+    expect(performTorrentContentAction).toHaveBeenCalledWith('torrent-1', 3, 'open')
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('removes selected torrents and adopts the authoritative response', async () => {

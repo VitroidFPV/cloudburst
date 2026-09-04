@@ -79,6 +79,12 @@ export const priorityLabel = (priority: number): string =>
 
 const genericFileIcon = 'i-lucide-file'
 
+const openableMediaExtensions = new Set([
+  'aac', 'avi', 'bmp', 'flac', 'flv', 'gif', 'heic', 'jpg', 'jpeg', 'm4a', 'm4v',
+  'mkv', 'mov', 'mp3', 'mp4', 'mpeg', 'mpg', 'ogg', 'opus', 'png', 'tif', 'tiff',
+  'vob', 'wav', 'webm', 'webp', 'wma', 'wmv',
+])
+
 const iconByExtension = new Map([
   ['mkv', 'i-lucide-film'],
   ['mp4', 'i-lucide-film'],
@@ -137,6 +143,12 @@ export const fileIconFor = (path: string) => {
   const extensionStart = name.lastIndexOf('.')
   if (extensionStart < 0) return genericFileIcon
   return iconByExtension.get(name.slice(extensionStart + 1).toLowerCase()) ?? genericFileIcon
+}
+
+export const isOpenableMediaPath = (path: string) => {
+  const name = path.split(segmentPattern).pop() ?? ''
+  const extensionStart = name.lastIndexOf('.')
+  return extensionStart >= 0 && openableMediaExtensions.has(name.slice(extensionStart + 1).toLowerCase())
 }
 
 // "No folder" layout: remove the single root directory shared by every

@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import type { TorrentFile, TorrentFilePriorityValue, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { TorrentContentAction, TorrentFile, TorrentFilePriorityValue, TorrentProperties, TorrentTracker } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { formatAddedOnFull, formatBytes, formatDuration, formatEta, formatSpeed, statusColor, statusIcon, statusLabel } from '~/utils/torrent-format'
 
 const props = defineProps<{
   torrentId: string | null
+  contentActionsVisible?: boolean
+  contentActionsDisabled?: boolean
+  contentActionsDisabledReason?: string
 }>()
 
 const emit = defineEmits<{
   close: []
   changed: []
+  'content-action': [torrentId: string, action: TorrentContentAction, fileId?: number]
 }>()
 
 const DETAIL_POLL_INTERVAL_MS = 1_000
@@ -164,6 +168,13 @@ const onTreeChange = (payload: { priorities: number[], selectedSize: number, all
     .map(update => ({ id: update.id, priority: update.priority as TorrentFilePriorityValue }))
   knownPriorities.value = [...payload.priorities]
   if (updates.length) void setTorrentFilePriorities(props.torrentId, updates)
+}
+
+const onFileContentAction = (fileIndex: number, action: TorrentContentAction) => {
+  const torrentId = props.torrentId
+  const file = files.value?.[fileIndex]
+  if (!torrentId || !file) return
+  emit('content-action', torrentId, action, file.id)
 }
 
 const trackersVisible = computed(() => (trackers.value ?? []).filter(tracker => tracker.tier >= 0))
@@ -405,7 +416,11 @@ const onTagsChange = async (value: string[]) => {
           :files="treeFiles"
           :priorities="instancePriorities"
           :reset-key="torrent.id"
+          :content-actions="contentActionsVisible"
+          :content-actions-disabled="contentActionsDisabled"
+          :content-actions-disabled-reason="contentActionsDisabledReason"
           @change="onTreeChange"
+          @content-action="onFileContentAction"
         />
         <p v-else class="py-4 text-center text-sm text-muted">
           This torrent has no files to pick from.

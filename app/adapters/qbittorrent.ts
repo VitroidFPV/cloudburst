@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfileList, ConnectionSnapshot, MetadataFetch, ResolveOutcome, TorrentFile, TorrentFilePriority, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfileList, ConnectionSnapshot, MetadataFetch, ResolveOutcome, TorrentContentAction, TorrentFile, TorrentFilePriority, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 
 export interface QbittorrentAdapter {
   connect: (input: ConnectionInput) => Promise<ConnectionSnapshot>
@@ -17,6 +17,7 @@ export interface QbittorrentAdapter {
   fetchTorrentProperties: (torrentId: string) => Promise<TorrentProperties>
   fetchTorrentFiles: (torrentId: string) => Promise<TorrentFile[]>
   fetchTorrentTrackers: (torrentId: string) => Promise<TorrentTracker[]>
+  performTorrentContentAction: (torrentId: string, fileId: number | undefined, action: TorrentContentAction) => Promise<void>
   setTorrentFilePriorities: (torrentId: string, priorities: TorrentFilePriority[]) => Promise<void>
   setTorrentCategory: (torrentIds: string[], category: string) => Promise<void>
   addTorrentTags: (torrentIds: string[], tags: string[]) => Promise<void>
@@ -42,6 +43,7 @@ export const tauriQbittorrentAdapter: QbittorrentAdapter = {
   fetchTorrentProperties: torrentId => invoke<TorrentProperties>('fetch_torrent_properties', { torrentId }),
   fetchTorrentFiles: torrentId => invoke<TorrentFile[]>('fetch_torrent_files', { torrentId }),
   fetchTorrentTrackers: torrentId => invoke<TorrentTracker[]>('fetch_torrent_trackers', { torrentId }),
+  performTorrentContentAction: (torrentId, fileId, action) => invoke('perform_torrent_content_action', { torrentId, fileId: fileId ?? null, action }),
   setTorrentFilePriorities: (torrentId, priorities) => invoke('set_torrent_file_priorities', { torrentId, priorities }),
   setTorrentCategory: (torrentIds, category) => invoke('set_torrent_category', { torrentIds, category }),
   addTorrentTags: (torrentIds, tags) => invoke('add_torrent_tags', { torrentIds, tags }),

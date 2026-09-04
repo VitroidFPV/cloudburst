@@ -1,4 +1,4 @@
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentContentAction, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { REFRESH_CADENCE_INTERVALS_MS, useRefreshCadenceSetting } from '~/composables/useRefreshCadenceSetting'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
@@ -368,6 +368,20 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
+  const performTorrentContentAction = async (torrentId: string, action: TorrentContentAction, fileId?: number) => {
+    if (!torrentId.trim() || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
+
+    torrentActionError.value = ''
+    try {
+      await adapter.performTorrentContentAction(torrentId, fileId, action)
+      return true
+    }
+    catch (error) {
+      torrentActionError.value = errorMessage(error)
+      return false
+    }
+  }
+
   const setTorrentFilePriorities = async (torrentId: string, priorities: TorrentFilePriority[]) => {
     if (!priorities.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
 
@@ -604,6 +618,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     fetchTorrentProperties,
     fetchTorrentFiles,
     fetchTorrentTrackers,
+    performTorrentContentAction,
     setTorrentFilePriorities,
     setTorrentCategory,
     addTorrentTags,

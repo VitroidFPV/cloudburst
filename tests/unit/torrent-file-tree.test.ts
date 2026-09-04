@@ -3,6 +3,7 @@ import {
   buildFileTree,
   commonRootFolder,
   fileIconFor,
+  isOpenableMediaPath,
   priorityForRating,
   priorityLabel,
   ratingForPriority,
@@ -87,6 +88,15 @@ describe('buildFileTree', () => {
     expect(fileIconFor('release.nfo')).toBe('i-lucide-book-open')
     expect(fileIconFor('weird.unknown')).toBe('i-lucide-file')
     expect(fileIconFor('no-extension')).toBe('i-lucide-file')
+  })
+
+  it('allows only audio, video, and raster image files to open directly', () => {
+    expect(isOpenableMediaPath('movie.MKV')).toBe(true)
+    expect(isOpenableMediaPath('music/track.flac')).toBe(true)
+    expect(isOpenableMediaPath('poster.webp')).toBe(true)
+    expect(isOpenableMediaPath('vector.svg')).toBe(false)
+    expect(isOpenableMediaPath('document.pdf')).toBe(false)
+    expect(isOpenableMediaPath('installer.exe')).toBe(false)
   })
 
   it('strips a shared root folder and leaves multiple roots alone', () => {
