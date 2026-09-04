@@ -1,5 +1,6 @@
 mod build_flavor;
 mod connection_profile;
+mod content_action;
 mod magnet_handler;
 mod notification;
 mod qbittorrent;
@@ -62,6 +63,7 @@ pub fn run() {
             qbittorrent::fetch_torrent_properties,
             qbittorrent::fetch_torrent_files,
             qbittorrent::fetch_torrent_trackers,
+            qbittorrent::perform_torrent_content_action,
             qbittorrent::set_torrent_file_priorities,
             qbittorrent::set_torrent_category,
             qbittorrent::add_torrent_tags,

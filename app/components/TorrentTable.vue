@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ContextMenuItem, TableColumn, TableRow } from '@nuxt/ui'
-import type { Torrent, TorrentStatus } from '~/types/torrent'
+import type { Torrent, TorrentContentAction, TorrentStatus } from '~/types/torrent'
 import { formatAddedOn, formatAddedOnFull, formatBytes, formatEta, formatSpeed, statusColor, statusIcon, statusLabel } from '~/utils/torrent-format'
 import { resolveTorrentSelection, shouldSelectAllTorrents } from '~/utils/torrent-selection'
 
@@ -12,6 +12,9 @@ const props = defineProps<{
   categories?: string[]
   tags?: string[]
   openTorrentId?: string | null
+  contentActionsVisible?: boolean
+  contentActionsDisabled?: boolean
+  contentActionsDisabledReason?: string
 }>()
 
 const emit = defineEmits<{
@@ -21,12 +24,13 @@ const emit = defineEmits<{
   'add-tags': [torrentIds: string[], tags: string[]]
   'remove-tags': [torrentIds: string[], tags: string[]]
   'toggle-details': [torrentId: string]
+  'content-action': [torrentId: string, action: TorrentContentAction]
 }>()
 
 // UTable has no double-click hook, so a second click on the same row within
 // the threshold counts as toggling the torrent's details.
 const DOUBLE_CLICK_MS = 400
-let lastClick: { id: string, at: number } | undefined
+let lastClick: { id: string, at: number, shiftKey: boolean } | undefined
 
 const UBadge = resolveComponent('UBadge')
 const UIcon = resolveComponent('UIcon')
@@ -120,6 +124,12 @@ const emitSelectedActivity = (paused: boolean) => {
   emit('set-paused', selectedTorrents.value.map(torrent => torrent.id), paused)
 }
 
+const emitSelectedContentAction = (action: TorrentContentAction) => {
+  const torrent = selectedTorrents.value[0]
+  if (!torrent || selectedCount.value !== 1 || props.contentActionsDisabled) return
+  emit('content-action', torrent.id, action)
+}
+
 const removeOpen = ref(false)
 const removeFiles = ref(false)
 const removeTitle = computed(() => `Remove ${selectedCount.value === 1 ? 'torrent' : `${selectedCount.value} torrents`}`)
@@ -135,13 +145,33 @@ const confirmRemoval = (deleteFiles: boolean) => {
 }
 
 const contextMenuItems = computed<ContextMenuItem[][]>(() => {
-  const groups: ContextMenuItem[][] = [[
+  const primaryItems: ContextMenuItem[] = [
     {
       label: detailsOpenForSelection.value ? 'Close details' : 'Details',
       icon: detailsOpenForSelection.value ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open',
       disabled: selectedCount.value !== 1,
       onSelect: () => emit('toggle-details', selectedTorrents.value[0]!.id),
     },
+  ]
+
+  if (props.contentActionsVisible) {
+    primaryItems.push(
+      {
+        label: 'Open',
+        icon: 'i-lucide-external-link',
+        disabled: selectedCount.value !== 1 || props.contentActionsDisabled,
+        onSelect: () => emitSelectedContentAction('open'),
+      },
+      {
+        label: 'Show in folder',
+        icon: 'i-lucide-folder-open',
+        disabled: selectedCount.value !== 1 || props.contentActionsDisabled,
+        onSelect: () => emitSelectedContentAction('reveal'),
+      },
+    )
+  }
+
+  primaryItems.push(
     {
       label: 'Start',
       icon: 'i-lucide-play',
@@ -154,7 +184,8 @@ const contextMenuItems = computed<ContextMenuItem[][]>(() => {
       disabled: activityActionsDisabled.value || !canStopSelected.value,
       onSelect: () => emitSelectedActivity(true),
     },
-  ]]
+  )
+  const groups: ContextMenuItem[][] = [primaryItems]
 
   const selectedIds = selectedTorrents.value.map(torrent => torrent.id)
   const organizeItems: ContextMenuItem[] = []
@@ -225,12 +256,21 @@ const selectRow = (event: Event, row: TableRow<Torrent>) => {
   const additive = mouseEvent.ctrlKey || mouseEvent.metaKey
 
   const now = Date.now()
-  const isDoubleClick = !additive && !mouseEvent.shiftKey
-    && lastClick?.id === row.id && now - lastClick.at <= DOUBLE_CLICK_MS
-  lastClick = { id: row.id, at: now }
+  const isDoubleClick = !additive
+    && lastClick?.id === row.id
+    && lastClick.shiftKey === mouseEvent.shiftKey
+    && now - lastClick.at <= DOUBLE_CLICK_MS
+  lastClick = { id: row.id, at: now, shiftKey: mouseEvent.shiftKey }
   if (isDoubleClick) {
-    emit('toggle-details', row.original.id)
-    return
+    lastClick = undefined
+    if (!mouseEvent.shiftKey) {
+      emit('toggle-details', row.original.id)
+      return
+    }
+    if (props.contentActionsVisible && !props.contentActionsDisabled) {
+      emit('content-action', row.original.id, 'open')
+      return
+    }
   }
 
   const result = resolveTorrentSelection({
@@ -808,6 +848,28 @@ watch(() => props.autoSelectIds, (ids) => {
             :disabled="activityActionsDisabled || !canStopSelected"
             :loading="actionPending"
             @click="emitSelectedActivity(true)"
+          />
+          <UButton
+            v-if="contentActionsVisible"
+            icon="i-lucide-external-link"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Open selected torrent content"
+            :title="selectedCount === 1 ? (contentActionsDisabledReason || 'Open content · Shift + double-click') : 'Select one torrent to open its content.'"
+            :disabled="selectedCount !== 1 || contentActionsDisabled"
+            @click="emitSelectedContentAction('open')"
+          />
+          <UButton
+            v-if="contentActionsVisible"
+            icon="i-lucide-folder-open"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Show selected torrent content in folder"
+            :title="selectedCount === 1 ? (contentActionsDisabledReason || 'Show content in folder') : 'Select one torrent to show its content in a folder.'"
+            :disabled="selectedCount !== 1 || contentActionsDisabled"
+            @click="emitSelectedContentAction('reveal')"
           />
           <UButton
             icon="i-lucide-trash-2"

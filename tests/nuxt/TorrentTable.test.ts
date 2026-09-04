@@ -227,6 +227,53 @@ describe('TorrentTable', () => {
     await wrapper.unmount()
   })
 
+  it('offers local content actions for a single selected torrent', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], contentActionsVisible: true },
+    })
+
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+    await wrapper.get('.torrent-table').trigger('contextmenu', { button: 2, clientX: 40, clientY: 40 })
+    await flushPromises()
+    const menu = Array.from(document.body.querySelectorAll('[role="menu"]')).at(-1)!
+    const openItem = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find(item => item.textContent?.includes('Open'))!
+
+    openItem.click()
+    await flushPromises()
+
+    expect(wrapper.emitted('content-action')).toEqual([['torrent-1', 'open']])
+    await wrapper.unmount()
+  })
+
+  it('offers content actions beside the selected torrent activity controls', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], contentActionsVisible: true },
+    })
+
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+    await wrapper.get('[aria-label="Open selected torrent content"]').trigger('click')
+    await wrapper.get('[aria-label="Show selected torrent content in folder"]').trigger('click')
+
+    expect(wrapper.emitted('content-action')).toEqual([
+      ['torrent-1', 'open'],
+      ['torrent-1', 'reveal'],
+    ])
+  })
+
+  it('opens the torrent under the pointer on shift-double-click', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent], contentActionsVisible: true },
+    })
+    const row = wrapper.get('tbody tr')
+
+    await row.trigger('click', { shiftKey: true })
+    await row.trigger('click', { shiftKey: true })
+
+    expect(wrapper.emitted('content-action')).toEqual([['torrent-1', 'open']])
+    expect(wrapper.emitted('toggle-details')).toBeUndefined()
+  })
+
   it('closes open details with Escape before clearing the selection', async () => {
     dropLeftoverOverlays()
     const wrapper = await mountSuspended(TorrentTable, {

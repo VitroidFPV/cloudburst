@@ -132,6 +132,8 @@ export interface TorrentFilePriority {
   priority: TorrentFilePriorityValue
 }
 
+export type TorrentContentAction = 'open' | 'reveal'
+
 export type MagnetHandlerStatus = 'cloudburstDefault' | 'otherProgram' | 'notRegistered'
 
 export interface TorrentFilter {

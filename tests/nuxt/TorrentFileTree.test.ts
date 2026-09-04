@@ -126,6 +126,55 @@ describe('TorrentFileTree', () => {
     expect(wrapper.text()).not.toContain('100%')
   })
 
+  it('opens only completed media files from the file tree', async () => {
+    const wrapper = await mountSuspended(TorrentFileTree, {
+      props: {
+        files: [
+          { path: 'movie.mkv', length: 1000, progress: 1 },
+          { path: 'partial.mp4', length: 2000, progress: 0.5 },
+          { path: 'notes.txt', length: 5, progress: 1 },
+        ],
+        contentActions: true,
+      },
+      global: {
+        stubs: {
+          UTooltip: { template: '<span><slot /></span>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const movie = wrapper.get('[aria-label="Open movie.mkv"]')
+    expect(movie.attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[aria-label="Open partial.mp4"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="Open notes.txt"]').attributes('disabled')).toBeDefined()
+
+    await movie.trigger('click')
+    expect(wrapper.emitted('content-action')).toEqual([[0, 'open']])
+  })
+
+  it('keeps unavailable file open actions hidden until their row is hovered', async () => {
+    const wrapper = await mountSuspended(TorrentFileTree, {
+      props: {
+        files: [{ path: 'notes.txt', length: 5, progress: 1 }],
+        contentActions: true,
+      },
+      global: {
+        stubs: {
+          UTooltip: { template: '<span><slot /></span>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const unavailable = wrapper.get('[aria-label="Open notes.txt"]')
+    expect(unavailable.attributes('disabled')).toBeDefined()
+    expect(unavailable.classes()).toContain('opacity-0')
+    expect(unavailable.classes()).toContain('disabled:opacity-0')
+    expect(unavailable.classes()).toContain('group-hover:disabled:opacity-100')
+    expect(unavailable.classes()).not.toContain('disabled:opacity-75')
+  })
+
   it('keeps the torrent layout honest in the tree shape', async () => {
     const rootedFiles: TorrentMetadataFile[] = [
       { path: 'Show.S01/ep1.mkv', length: 1000 },

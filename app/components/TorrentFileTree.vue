@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { AddContentLayout, TorrentMetadataFile } from '~/types/torrent'
+import type { ContextMenuItem } from '@nuxt/ui'
+import type { AddContentLayout, TorrentContentAction, TorrentMetadataFile } from '~/types/torrent'
 import { formatBytes } from '~/utils/torrent-format'
 import {
   buildFileTree,
   commonRootFolder,
   fileIconFor,
+  isOpenableMediaPath,
   priorityForRating,
   priorityLabel,
   ratingForPriority,
@@ -19,10 +21,14 @@ const props = defineProps<{
   folderName?: string
   priorities?: number[]
   resetKey?: string | number
+  contentActions?: boolean
+  contentActionsDisabled?: boolean
+  contentActionsDisabledReason?: string
 }>()
 
 const emit = defineEmits<{
   change: [payload: { priorities: number[], selectedSize: number, allSelected: boolean }]
+  'content-action': [fileIndex: number, action: TorrentContentAction]
 }>()
 
 const selection = ref<Record<number, number>>({})
@@ -102,6 +108,36 @@ const toggleFolderCollapsed = (node: TorrentFileTreeNode) => {
 
 const isCollapsed = (node: TorrentFileTreeNode) => collapsedFolders.value.has(node.path)
 
+const openDisabledReason = (node: TorrentFileTreeNode) => {
+  if (props.contentActionsDisabled) return props.contentActionsDisabledReason || 'File actions are unavailable.'
+  if (node.progress === null || node.progress < 1) return 'Only completed files can be opened.'
+  if (!isOpenableMediaPath(node.path)) return 'Only audio, video, and image files can be opened directly.'
+  return undefined
+}
+
+const emitContentAction = (node: TorrentFileTreeNode, action: TorrentContentAction) => {
+  if (node.fileIndex === null || props.contentActionsDisabled) return
+  emit('content-action', node.fileIndex, action)
+}
+
+const fileContextMenuItems = (node: TorrentFileTreeNode): ContextMenuItem[][] => {
+  if (!props.contentActions || node.fileIndex === null) return []
+  return [[
+    {
+      label: 'Open',
+      icon: 'i-lucide-external-link',
+      disabled: Boolean(openDisabledReason(node)),
+      onSelect: () => emitContentAction(node, 'open'),
+    },
+    {
+      label: 'Show in folder',
+      icon: 'i-lucide-folder-open',
+      disabled: props.contentActionsDisabled,
+      onSelect: () => emitContentAction(node, 'reveal'),
+    },
+  ]]
+}
+
 const visibleRows = computed(() => {
   const rows: Array<{ node: TorrentFileTreeNode, depth: number }> = []
   const walk = (nodes: TorrentFileTreeNode[], depth: number) => nodes.forEach((node) => {
@@ -152,46 +188,64 @@ watch(() => props.priorities, () => emitChange())
 
     <ul class="max-h-128 min-h-0 space-y-0.5 overflow-y-auto pe-1">
       <li v-for="row in visibleRows" :key="row.node.path">
-        <div
-          class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-elevated"
-          :style="{ paddingInlineStart: `${row.depth * 18 + 4}px` }"
-        >
-          <button
-            v-if="row.node.isFolder"
-            type="button"
-            class="flex shrink-0"
-            :aria-label="`${isCollapsed(row.node) ? 'Expand' : 'Collapse'} ${row.node.name}`"
-            @click="toggleFolderCollapsed(row.node)"
+        <UContextMenu :items="fileContextMenuItems(row.node)" :disabled="!contentActions || row.node.isFolder">
+          <div
+            class="group flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-elevated"
+            :style="{ paddingInlineStart: `${row.depth * 18 + 4}px` }"
           >
-            <UIcon :name="isCollapsed(row.node) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="size-4 text-muted" />
-          </button>
-          <span v-else class="w-4 shrink-0" />
-          <UCheckbox
-            v-if="row.node.isFolder"
-            :model-value="nodeState(row.node)"
-            :aria-label="`Include ${row.node.name}`"
-            @update:model-value="toggleNode(row.node, $event)"
-          />
-          <UInputRating
-            v-else
-            :model-value="ratingForPriority(priorityAt(row.node.fileIndex!))"
-            :length="3"
-            clearable
-            hoverable
-            empty-icon="ph-caret-circle-double-down"
-            icon="ph-caret-circle-double-down-fill"
-            :aria-label="`Priority for ${row.node.name}`"
-            :title="priorityLabel(priorityAt(row.node.fileIndex!))"
-            @update:model-value="setFileRating(row.node, $event)"
-          />
-          <UIcon :name="row.node.isFolder ? 'i-lucide-folder' : fileIconFor(row.node.path)" class="size-4 shrink-0 text-muted" />
-          <span class="min-w-0 flex-1 truncate text-sm">{{ row.node.name }}</span>
-          <span
-            v-if="row.node.progress !== null && row.node.progress < 1"
-            class="shrink-0 font-mono text-xs text-muted"
-          >{{ Math.round(row.node.progress * 100) }}%</span>
-          <span class="shrink-0 font-mono text-xs text-muted">{{ formatBytes(row.node.size) }}</span>
-        </div>
+            <button
+              v-if="row.node.isFolder"
+              type="button"
+              class="flex shrink-0"
+              :aria-label="`${isCollapsed(row.node) ? 'Expand' : 'Collapse'} ${row.node.name}`"
+              @click="toggleFolderCollapsed(row.node)"
+            >
+              <UIcon :name="isCollapsed(row.node) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="size-4 text-muted" />
+            </button>
+            <span v-else class="w-4 shrink-0" />
+            <UCheckbox
+              v-if="row.node.isFolder"
+              :model-value="nodeState(row.node)"
+              :aria-label="`Include ${row.node.name}`"
+              @update:model-value="toggleNode(row.node, $event)"
+            />
+            <UInputRating
+              v-else
+              :model-value="ratingForPriority(priorityAt(row.node.fileIndex!))"
+              :length="3"
+              clearable
+              hoverable
+              empty-icon="ph-caret-circle-double-down"
+              icon="ph-caret-circle-double-down-fill"
+              :aria-label="`Priority for ${row.node.name}`"
+              :title="priorityLabel(priorityAt(row.node.fileIndex!))"
+              @update:model-value="setFileRating(row.node, $event)"
+            />
+            <UIcon :name="row.node.isFolder ? 'i-lucide-folder' : fileIconFor(row.node.path)" class="size-4 shrink-0 text-muted" />
+            <span class="min-w-0 flex-1 truncate text-sm">{{ row.node.name }}</span>
+            <span
+              v-if="row.node.progress !== null && row.node.progress < 1"
+              class="shrink-0 font-mono text-xs text-muted"
+            >{{ Math.round(row.node.progress * 100) }}%</span>
+            <span class="shrink-0 font-mono text-xs text-muted">{{ formatBytes(row.node.size) }}</span>
+            <UTooltip
+              v-if="contentActions && !row.node.isFolder"
+              :text="openDisabledReason(row.node) || 'Open file'"
+            >
+              <UButton
+                type="button"
+                icon="i-lucide-external-link"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                class="opacity-0 transition-opacity disabled:opacity-0 group-hover:opacity-100 group-hover:disabled:opacity-100 group-focus-within:opacity-100 group-focus-within:disabled:opacity-100 focus:opacity-100"
+                :aria-label="`Open ${row.node.name}`"
+                :disabled="Boolean(openDisabledReason(row.node))"
+                @click="emitContentAction(row.node, 'open')"
+              />
+            </UTooltip>
+          </div>
+        </UContextMenu>
       </li>
     </ul>
   </div>

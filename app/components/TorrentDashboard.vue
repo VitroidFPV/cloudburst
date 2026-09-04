@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus } from '~/types/torrent'
+import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus, TorrentContentAction } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { isLoopbackEndpoint } from '~/utils/connection'
@@ -48,6 +48,7 @@ const {
   loadDefaultSavePath,
   parseTorrentMetadata,
   fetchTorrentMetadata,
+  performTorrentContentAction,
   setTorrentCategory,
   addTorrentTags,
   removeTorrentTags,
@@ -164,6 +165,20 @@ const canBrowseFolders = computed(() => typeof window !== 'undefined'
   && connectionStatus.value === 'connected'
   && !stale.value
   && isLoopbackEndpoint(connectionEndpoint.value))
+
+const contentActionPending = ref(false)
+const contentActionsVisible = computed(() => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window)
+const contentActionsDisabled = computed(() => torrentActionsDisabled.value
+  || !isLoopbackEndpoint(connectionEndpoint.value)
+  || contentActionPending.value)
+const contentActionsDisabledReason = computed(() => {
+  if (showPlaceholder.value) return 'File actions are unavailable for placeholder torrents.'
+  if (connectionStatus.value !== 'connected') return 'Connect to qBittorrent to use file actions.'
+  if (stale.value) return 'Reconnect to qBittorrent to use file actions.'
+  if (!isLoopbackEndpoint(connectionEndpoint.value)) return 'File actions are available only for local connections.'
+  if (contentActionPending.value) return 'A file action is already in progress.'
+  return undefined
+})
 
 const canReuseSavedCredential = computed(() => {
   const currentEndpoint = connectionForm.endpoint.replace(/\/+$/, '')
@@ -285,6 +300,23 @@ const updateTorrentActivity = async (torrentIds: string[], paused: boolean) => {
     description: torrentActionError.value || 'The torrent action is unavailable while qBittorrent is disconnected.',
     color: 'error',
   })
+}
+
+const onTorrentContentAction = async (torrentId: string, action: TorrentContentAction, fileId?: number) => {
+  if (contentActionsDisabled.value) return
+  contentActionPending.value = true
+  try {
+    if (await performTorrentContentAction(torrentId, action, fileId)) return
+
+    toast.add({
+      title: action === 'open' ? 'Could not open content' : 'Could not show content in folder',
+      description: torrentActionError.value || 'The file action is unavailable right now.',
+      color: 'error',
+    })
+  }
+  finally {
+    contentActionPending.value = false
+  }
 }
 
 const removeSelectedTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
@@ -548,12 +580,16 @@ onBeforeUnmount(() => {
           :categories="instanceCategories"
           :tags="instanceTags"
           :open-torrent-id="detailTorrentId"
+          :content-actions-visible="contentActionsVisible"
+          :content-actions-disabled="contentActionsDisabled"
+          :content-actions-disabled-reason="contentActionsDisabledReason"
           @set-paused="updateTorrentActivity"
           @remove-torrents="removeSelectedTorrents"
           @set-category="onSetCategory"
           @add-tags="onAddTags"
           @remove-tags="onRemoveTags"
           @toggle-details="toggleDetails"
+          @content-action="onTorrentContentAction"
         >
           <template #actions>
             <UButton
@@ -631,8 +667,12 @@ onBeforeUnmount(() => {
     >
       <TorrentDetailPanel
         :torrent-id="detailTorrentId"
+        :content-actions-visible="contentActionsVisible"
+        :content-actions-disabled="contentActionsDisabled"
+        :content-actions-disabled-reason="contentActionsDisabledReason"
         @close="detailTorrentId = null"
         @changed="loadInstanceCollections"
+        @content-action="onTorrentContentAction"
       />
     </UDashboardPanel>
     </UDashboardGroup>

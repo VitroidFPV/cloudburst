@@ -1,4 +1,7 @@
-use crate::connection_profile::{self, AuthenticationMode, ConnectionProfile, ConnectionProfileStore};
+use crate::{
+    connection_profile::{self, AuthenticationMode, ConnectionProfile, ConnectionProfileStore},
+    content_action::{self, ContentAction, ContentFile, TorrentContent},
+};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use reqwest::{
     multipart::{Form, Part},
@@ -352,6 +355,15 @@ struct QbittorrentTorrentFile {
     size: u64,
     progress: f64,
     priority: u32,
+}
+
+#[derive(Deserialize)]
+struct QbittorrentContentTorrent {
+    content_path: String,
+    #[serde(default)]
+    root_path: String,
+    #[serde(default)]
+    files: Vec<QbittorrentTorrentFile>,
 }
 
 #[derive(Deserialize)]
@@ -721,6 +733,38 @@ pub async fn fetch_torrent_trackers(
         .trackers(&torrent_id)
         .await
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn perform_torrent_content_action(
+    torrent_id: String,
+    file_id: Option<u32>,
+    action: ContentAction,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), String> {
+    let torrent_id = torrent_id.trim();
+    if torrent_id.is_empty() {
+        return Err("Choose a torrent first.".to_string());
+    }
+
+    let active_connection = manager.active.lock().await;
+    let active = active_connection
+        .as_ref()
+        .ok_or_else(|| "No qBittorrent connection is configured.".to_string())?;
+    if !is_loopback_endpoint(&active.client.endpoint) {
+        return Err(
+            "Downloaded files can only be opened for a local qBittorrent connection.".to_string(),
+        );
+    }
+
+    let content = active
+        .client
+        .content(torrent_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    drop(active_connection);
+
+    content_action::perform(&content, file_id, action)
 }
 
 #[tauri::command]
@@ -1316,6 +1360,48 @@ impl QbittorrentClient {
                 priority: file.priority,
             })
             .collect())
+    }
+
+    async fn content(&self, torrent_id: &str) -> Result<TorrentContent, ConnectionError> {
+        let response = self
+            .get_with_query(
+                "api/v2/torrents/info",
+                &[("hashes", torrent_id), ("includeFiles", "true")],
+            )
+            .await?;
+        let mut torrents = response
+            .json::<Vec<QbittorrentContentTorrent>>()
+            .await
+            .map_err(|error| {
+                ConnectionError::InvalidResponse(format!(
+                    "qBittorrent returned unreadable torrent file information: {error}"
+                ))
+            })?;
+        if torrents.len() > 1 {
+            return Err(ConnectionError::InvalidResponse(
+                "qBittorrent returned more than one torrent for the selected ID.".to_string(),
+            ));
+        }
+        let torrent = torrents.pop().ok_or_else(|| {
+            ConnectionError::InvalidResponse(
+                "The selected torrent is no longer available in qBittorrent.".to_string(),
+            )
+        })?;
+
+        Ok(TorrentContent {
+            content_path: torrent.content_path.into(),
+            root_path: (!torrent.root_path.is_empty()).then(|| torrent.root_path.into()),
+            files: torrent
+                .files
+                .into_iter()
+                .enumerate()
+                .map(|(position, file)| ContentFile {
+                    id: file.index.unwrap_or(position as u32),
+                    path: file.name,
+                    progress: file.progress,
+                })
+                .collect(),
+        })
     }
 
     async fn trackers(&self, torrent_id: &str) -> Result<Vec<TorrentTracker>, ConnectionError> {
@@ -2392,6 +2478,39 @@ mod tests {
         assert!(requests[0].starts_with("GET /api/v2/torrents/properties?hash=abc123 "));
         assert!(requests[1].starts_with("GET /api/v2/torrents/files?hash=abc123 "));
         assert!(requests[2].starts_with("GET /api/v2/torrents/trackers?hash=abc123 "));
+    }
+
+    #[test]
+    fn fetches_content_metadata_only_for_the_requested_torrent() {
+        let content_json = r#"[{
+            "content_path":"C:/Downloads/BigBuckBunny_124",
+            "root_path":"C:/Downloads/BigBuckBunny_124",
+            "files":[
+                {"index":3,"name":"BigBuckBunny_124/movie.mkv","size":10,"progress":1.0,"priority":1},
+                {"index":7,"name":"BigBuckBunny_124/readme.txt","size":20,"progress":0.5,"priority":1}
+            ]
+        }]"#;
+        let (endpoint, requests, server) = serve_responses(vec![content_json]);
+        let client = QbittorrentClient::new(ConnectionInput {
+            endpoint,
+            authentication_mode: AuthenticationMode::ApiKey,
+            api_key: Some("qbt_0000000000000000000000000000".to_string()),
+            username: None,
+            password: None,
+        })
+        .unwrap();
+
+        let content = tauri::async_runtime::block_on(async { client.content("abc123").await.unwrap() });
+        server.join().unwrap();
+        let requests: Vec<_> = requests.iter().collect();
+
+        assert_eq!(content.content_path, std::path::PathBuf::from("C:/Downloads/BigBuckBunny_124"));
+        assert_eq!(content.root_path, Some(std::path::PathBuf::from("C:/Downloads/BigBuckBunny_124")));
+        assert_eq!(content.files[0].id, 3);
+        assert_eq!(content.files[1].progress, 0.5);
+        assert!(requests[0].starts_with(
+            "GET /api/v2/torrents/info?hashes=abc123&includeFiles=true "
+        ));
     }
 
     #[test]
