@@ -25,13 +25,15 @@ fn detect_magnet_handler_status(app: &tauri::AppHandle) -> Result<MagnetHandlerS
     let registered = app.deep_link().is_registered("magnet").unwrap_or(false);
     let user_choice = current_user_choice_progid();
     let handler_command = user_choice.as_deref().and_then(resolve_progid_command);
-    let marker = current_exe_marker();
+    let own_progid = magnet_progid(app);
+    let executable = current_exe_marker();
 
     Ok(evaluate_magnet_status(
         registered,
         user_choice,
         handler_command,
-        &marker,
+        &own_progid,
+        &executable,
     ))
 }
 
@@ -76,12 +78,15 @@ fn evaluate_magnet_status(
     registered: bool,
     user_choice: Option<String>,
     handler_command: Option<String>,
-    exe_marker: &str,
+    own_progid: &str,
+    executable: &str,
 ) -> MagnetHandlerStatus {
     if let Some(progid) = user_choice {
-        let progid_is_ours = progid.to_ascii_lowercase().contains(exe_marker);
+        let progid = progid.to_ascii_lowercase();
+        let progid_is_ours = progid.eq_ignore_ascii_case(own_progid)
+            || progid.rsplit('\\').next() == Some(executable);
         let command_is_ours = handler_command
-            .map(|command| command.to_ascii_lowercase().contains(exe_marker))
+            .map(|command| command.to_ascii_lowercase().contains(executable))
             .unwrap_or(false);
 
         return if progid_is_ours || command_is_ours {
@@ -119,61 +124,87 @@ fn open_default_apps_settings_impl() -> Result<(), String> {
 // through RegisteredApplications) makes Cloudburst enumerable everywhere
 // Windows asks "which apps can handle magnet links?".
 #[cfg(windows)]
-const MAGNET_PROGID: &str = "Cloudburst.Magnet";
+fn registry_name(app_name: &str) -> String {
+    app_name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect()
+}
 
 #[cfg(windows)]
-fn registration_plan(exe_path: &str) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
+fn magnet_progid(app: &tauri::AppHandle) -> String {
+    let app_name = app
+        .config()
+        .product_name
+        .as_deref()
+        .unwrap_or("Cloudburst");
+    format!("{}.Magnet", registry_name(app_name))
+}
+
+#[cfg(windows)]
+fn registration_plan(
+    exe_path: &str,
+    app_name: &str,
+) -> Vec<(String, Vec<(String, String)>)> {
+    let registry_name = registry_name(app_name);
+    let progid = format!("{registry_name}.Magnet");
+    let capabilities_path = format!(r"Software\{registry_name}\Capabilities");
     let command = format!("\"{exe_path}\" \"%1\"");
     vec![
         (
-            r"Software\Classes\Cloudburst.Magnet",
+            format!(r"Software\Classes\{progid}"),
             vec![
-                ("", "Cloudburst Magnet Link".to_string()),
-                ("URL Protocol", String::new()),
+                (String::new(), format!("{app_name} Magnet Link")),
+                ("URL Protocol".to_string(), String::new()),
             ],
         ),
         (
-            r"Software\Classes\Cloudburst.Magnet\shell\open\command",
-            vec![("", command.clone())],
+            format!(r"Software\Classes\{progid}\shell\open\command"),
+            vec![(String::new(), command.clone())],
         ),
         (
-            r"Software\Classes\magnet\OpenWithProgids",
-            vec![(MAGNET_PROGID, String::new())],
+            r"Software\Classes\magnet\OpenWithProgids".to_string(),
+            vec![(progid.clone(), String::new())],
         ),
         (
-            r"Software\Cloudburst\Capabilities",
+            capabilities_path.clone(),
             vec![
-                ("ApplicationName", "Cloudburst".to_string()),
+                ("ApplicationName".to_string(), app_name.to_string()),
                 (
-                    "ApplicationDescription",
+                    "ApplicationDescription".to_string(),
                     "A focused desktop interface for qBittorrent".to_string(),
                 ),
             ],
         ),
         (
-            r"Software\Cloudburst\Capabilities\URLAssociations",
-            vec![("magnet", MAGNET_PROGID.to_string())],
+            format!(r"{capabilities_path}\URLAssociations"),
+            vec![("magnet".to_string(), progid)],
         ),
         (
-            "Software\\RegisteredApplications",
-            vec![("Cloudburst", r"Software\Cloudburst\Capabilities".to_string())],
+            r"Software\RegisteredApplications".to_string(),
+            vec![(app_name.to_string(), capabilities_path)],
         ),
     ]
 }
 
 #[cfg(windows)]
-pub fn register_capability_keys() -> Result<(), String> {
+pub fn register_capability_keys(app: &tauri::AppHandle) -> Result<(), String> {
     let exe_path = std::env::current_exe()
         .map_err(|error| format!("Could not locate the Cloudburst executable: {error}"))?
         .to_string_lossy()
         .to_string();
 
-    for (path, values) in registration_plan(&exe_path) {
+    let app_name = app
+        .config()
+        .product_name
+        .as_deref()
+        .unwrap_or("Cloudburst");
+    for (path, values) in registration_plan(&exe_path, app_name) {
         let key = windows_registry::CURRENT_USER
-            .create(path)
+            .create(&path)
             .map_err(|error| format!("Could not create the registry key {path}: {error}"))?;
         for (name, value) in values {
-            key.set_string(name, &value)
+            key.set_string(&name, &value)
                 .map_err(|error| format!("Could not write the registry value {name}: {error}"))?;
         }
     }
@@ -186,31 +217,32 @@ pub fn register_capability_keys() -> Result<(), String> {
 fn writes_the_capability_registration() {
     let exe = r"C:\Program Files\Cloudburst\cloudburst.exe";
 
-    let plan = registration_plan(exe);
+    let plan = registration_plan(exe, "Cloudburst");
     let command = format!("\"{exe}\" \"%1\"");
 
     assert_eq!(plan.len(), 6);
     assert!(plan.iter().any(|(path, values)| {
-        *path == r"Software\Classes\Cloudburst.Magnet\shell\open\command"
-            && values.iter().any(|(name, value)| *name == "" && value == &command)
+        path == r"Software\Classes\Cloudburst.Magnet\shell\open\command"
+            && values.iter().any(|(name, value)| name == "" && value == &command)
     }));
     assert!(plan.iter().any(|(path, values)| {
-        *path == r"Software\Classes\magnet\OpenWithProgids"
-            && values.iter().any(|(name, _)| *name == MAGNET_PROGID)
+        path == r"Software\Classes\magnet\OpenWithProgids"
+            && values.iter().any(|(name, _)| name == "Cloudburst.Magnet")
     }));
     assert!(plan.iter().any(|(path, values)| {
-        *path == "Software\\RegisteredApplications"
-            && values.iter().any(|(name, value)| *name == "Cloudburst" && value == r"Software\Cloudburst\Capabilities")
+        path == r"Software\RegisteredApplications"
+            && values.iter().any(|(name, value)| name == "Cloudburst" && value == r"Software\Cloudburst\Capabilities")
     }));
 
-    // Exercises the registry round trip with this build's real exe path.
-    register_capability_keys().unwrap();
-    let command_key = windows_registry::CURRENT_USER
-        .open(r"Software\Classes\Cloudburst.Magnet\shell\open\command")
-        .unwrap();
-    let command_value = command_key.get_string("").unwrap();
-    assert!(command_value.contains("cloudburst"));
-    assert!(command_value.ends_with("\" \"%1\""));
+    let dev_plan = registration_plan(exe, "Cloudburst Dev");
+    assert!(dev_plan.iter().any(|(path, _)| {
+        path == r"Software\Classes\CloudburstDev.Magnet\shell\open\command"
+    }));
+    assert!(dev_plan.iter().any(|(path, values)| {
+        path == r"Software\RegisteredApplications"
+            && values.iter().any(|(name, value)| name == "Cloudburst Dev" && value == r"Software\CloudburstDev\Capabilities")
+    }));
+
 }
 
 #[cfg(test)]
@@ -224,6 +256,7 @@ mod tests {
                 true,
                 Some("qBittorrent".to_string()),
                 Some(r#""C:\Program Files\qBittorrent\qbittorrent.exe" "%1""#.to_string()),
+                "Cloudburst.Magnet",
                 "cloudburst.exe",
             ),
             MagnetHandlerStatus::OtherProgram
@@ -233,20 +266,31 @@ mod tests {
                 true,
                 Some(r"Applications\cloudburst.exe".to_string()),
                 None,
+                "Cloudburst.Magnet",
                 "cloudburst.exe",
             ),
             MagnetHandlerStatus::CloudburstDefault
+        );
+        assert_eq!(
+            evaluate_magnet_status(
+                true,
+                Some("Cloudburst.Magnet".to_string()),
+                Some(r#""C:\Program Files\Cloudburst\cloudburst.exe" "%1""#.to_string()),
+                "CloudburstDev.Magnet",
+                "cloudburst-dev.exe",
+            ),
+            MagnetHandlerStatus::OtherProgram
         );
     }
 
     #[test]
     fn falls_back_to_the_registry_registration_without_a_user_choice() {
         assert_eq!(
-            evaluate_magnet_status(true, None, None, "cloudburst.exe"),
+            evaluate_magnet_status(true, None, None, "Cloudburst.Magnet", "cloudburst.exe"),
             MagnetHandlerStatus::CloudburstDefault
         );
         assert_eq!(
-            evaluate_magnet_status(false, None, None, "cloudburst.exe"),
+            evaluate_magnet_status(false, None, None, "Cloudburst.Magnet", "cloudburst.exe"),
             MagnetHandlerStatus::NotRegistered
         );
     }

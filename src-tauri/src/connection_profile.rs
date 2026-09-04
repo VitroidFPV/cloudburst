@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
-const CREDENTIAL_SERVICE: &str = "dev.vitroid.cloudburst.qbittorrent";
 const STORE_FILE_NAME: &str = "connection-profiles.json";
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -99,25 +98,49 @@ pub async fn persist_store(app: &AppHandle, store: &ConnectionProfileStore) -> R
         .map_err(|error| format!("Failed to join the credential-storage task: {error}"))?
 }
 
-pub async fn read_credential(profile_id: &str) -> Result<Option<String>, String> {
+pub async fn read_credential(
+    app: &AppHandle,
+    profile_id: &str,
+) -> Result<Option<String>, String> {
+    let service = credential_service(app);
     let profile_id = profile_id.to_string();
-    tauri::async_runtime::spawn_blocking(move || read_credential_blocking(&profile_id))
+    tauri::async_runtime::spawn_blocking(move || {
+        read_credential_blocking(&service, &profile_id)
+    })
         .await
         .map_err(|error| format!("Failed to join the credential-storage task: {error}"))?
 }
 
-pub async fn write_credential(profile_id: &str, secret: String) -> Result<(), String> {
+pub async fn write_credential(
+    app: &AppHandle,
+    profile_id: &str,
+    secret: String,
+) -> Result<(), String> {
+    let service = credential_service(app);
     let profile_id = profile_id.to_string();
-    tauri::async_runtime::spawn_blocking(move || write_credential_blocking(&profile_id, &secret))
+    tauri::async_runtime::spawn_blocking(move || {
+        write_credential_blocking(&service, &profile_id, &secret)
+    })
         .await
         .map_err(|error| format!("Failed to join the credential-storage task: {error}"))?
 }
 
-pub async fn delete_credential(profile_id: &str) -> Result<(), String> {
+pub async fn delete_credential(app: &AppHandle, profile_id: &str) -> Result<(), String> {
+    let service = credential_service(app);
     let profile_id = profile_id.to_string();
-    tauri::async_runtime::spawn_blocking(move || delete_credential_blocking(&profile_id))
+    tauri::async_runtime::spawn_blocking(move || {
+        delete_credential_blocking(&service, &profile_id)
+    })
         .await
         .map_err(|error| format!("Failed to join the credential-storage task: {error}"))?
+}
+
+fn credential_service(app: &AppHandle) -> String {
+    credential_service_name(&app.config().identifier)
+}
+
+fn credential_service_name(identifier: &str) -> String {
+    format!("{identifier}.qbittorrent")
 }
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -174,8 +197,8 @@ fn write_store_file(path: &PathBuf, store: &ConnectionProfileStore) -> Result<()
     Ok(())
 }
 
-fn read_credential_blocking(profile_id: &str) -> Result<Option<String>, String> {
-    match credential_entry(profile_id)?.get_password() {
+fn read_credential_blocking(service: &str, profile_id: &str) -> Result<Option<String>, String> {
+    match credential_entry(service, profile_id)?.get_password() {
         Ok(secret) => Ok(Some(secret)),
         Err(KeyringError::NoEntry) => Ok(None),
         Err(error) => Err(format!(
@@ -184,14 +207,14 @@ fn read_credential_blocking(profile_id: &str) -> Result<Option<String>, String> 
     }
 }
 
-fn write_credential_blocking(profile_id: &str, secret: &str) -> Result<(), String> {
-    credential_entry(profile_id)?
+fn write_credential_blocking(service: &str, profile_id: &str, secret: &str) -> Result<(), String> {
+    credential_entry(service, profile_id)?
         .set_password(secret)
         .map_err(|error| format!("Could not protect the qBittorrent credential: {error}"))
 }
 
-fn delete_credential_blocking(profile_id: &str) -> Result<(), String> {
-    match credential_entry(profile_id)?.delete_credential() {
+fn delete_credential_blocking(service: &str, profile_id: &str) -> Result<(), String> {
+    match credential_entry(service, profile_id)?.delete_credential() {
         Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
         Err(error) => Err(format!(
             "The profile was removed, but its protected credential could not be deleted: {error}"
@@ -199,8 +222,8 @@ fn delete_credential_blocking(profile_id: &str) -> Result<(), String> {
     }
 }
 
-fn credential_entry(account: &str) -> Result<Entry, String> {
-    Entry::new(CREDENTIAL_SERVICE, account)
+fn credential_entry(service: &str, account: &str) -> Result<Entry, String> {
+    Entry::new(service, account)
         .map_err(|error| format!("The operating system credential vault is unavailable: {error}"))
 }
 
@@ -216,6 +239,18 @@ mod tests {
             username: username.map(str::to_string),
         }
         .with_computed_id()
+    }
+
+    #[test]
+    fn credential_service_is_scoped_to_the_application_identifier() {
+        assert_eq!(
+            credential_service_name("dev.vitroid.cloudburst"),
+            "dev.vitroid.cloudburst.qbittorrent"
+        );
+        assert_eq!(
+            credential_service_name("dev.vitroid.cloudburst.dev"),
+            "dev.vitroid.cloudburst.dev.qbittorrent"
+        );
     }
 
     #[test]
@@ -300,7 +335,8 @@ mod tests {
     #[test]
     #[ignore = "writes and immediately removes a dedicated Windows Credential Manager entry"]
     fn windows_credential_vault_round_trip() {
-        let entry = Entry::new(CREDENTIAL_SERVICE, "credential-storage-test").unwrap();
+        let service = credential_service_name("dev.vitroid.cloudburst.test");
+        let entry = Entry::new(&service, "credential-storage-test").unwrap();
         let test_result = entry
             .set_password("temporary-cloudburst-test-secret")
             .and_then(|()| entry.get_password())

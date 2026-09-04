@@ -13,6 +13,7 @@ interface AddTorrentModalApi {
 }
 
 const toast = useToast()
+const { appName } = useRuntimeConfig().public
 const { showPlaceholder } = usePlaceholderSetting()
 const { sendTorrentNotification } = useTorrentNotificationSetting()
 const {
@@ -487,7 +488,7 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="flex items-center gap-2 px-1">
           <UIcon name="i-lucide-cloud-rain" class="size-5 text-primary" />
-          <span class="font-semibold text-highlighted">Cloudburst</span>
+          <span class="font-semibold text-highlighted">{{ appName }}</span>
         </div>
       </template>
 
@@ -661,19 +662,19 @@ onBeforeUnmount(() => {
 
   <UModal
     v-model:open="magnetHintOpen"
-    title="Cloudburst is not your magnet link handler"
+    :title="`${appName} is not your magnet link handler`"
     description="Windows routes magnet links to the program chosen in the system's default apps."
   >
     <template #body>
       <div class="space-y-3 text-sm text-muted">
         <p>
-          Cloudburst registers itself automatically, but a default program chosen in Windows
+          {{ appName }} registers itself automatically, but a default program chosen in Windows
           Settings always takes precedence.
         </p>
         <ol class="list-decimal space-y-1 ps-5">
           <li>Open Windows Settings → Apps → Default apps.</li>
           <li>Search for “magnet”.</li>
-          <li>Choose <span class="text-highlighted">Cloudburst</span>.</li>
+          <li>Choose <span class="text-highlighted">{{ appName }}</span>.</li>
         </ol>
         <p>Magnet links clicked in your browser will then open the add dialog here.</p>
       </div>

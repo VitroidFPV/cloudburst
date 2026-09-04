@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev --host 127.0.0.1 --port 3000",
-    "dev:desktop": "tauri dev",
+    "dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "nuxt build",
-    "build:desktop": "tauri build",
+    "build:desktop": "pnpm build:desktop:production",
+    "build:desktop:dev": "tauri build --debug --config src-tauri/tauri.dev.conf.json",
+    "build:desktop:production": "tauri build",
     "generate": "nuxt generate",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

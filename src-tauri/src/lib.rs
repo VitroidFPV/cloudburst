@@ -1,3 +1,4 @@
+mod build_flavor;
 mod connection_profile;
 mod magnet_handler;
 mod notification;
@@ -19,24 +20,28 @@ pub fn run() {
         .manage(qbittorrent::ConnectionManager::default())
         .setup(|app| {
             tray::setup(app)?;
-            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            #[cfg(target_os = "linux")]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
-                // Dev builds and Linux AppImages are not touched by the
-                // installer, so claim the configured schemes for this exe.
-                let _ = app.deep_link().register_all();
+                // Linux AppImages are not touched by an installer. Development
+                // stays opt-in so it cannot replace production as the handler.
+                if !build_flavor::is_development(app.handle()) {
+                    let _ = app.deep_link().register_all();
+                }
             }
             #[cfg(windows)]
             {
-                // Make Cloudburst enumerable as a magnet handler for
+                // Make each flavor enumerable as a separate magnet handler for
                 // browsers and the Settings app, not just directly activatable.
-                if let Err(error) = magnet_handler::register_capability_keys() {
+                if let Err(error) = magnet_handler::register_capability_keys(app.handle()) {
                     eprintln!("failed to register Cloudburst's magnet capabilities: {error}");
                 }
             }
-            #[cfg(all(debug_assertions, windows))]
-            if let Err(error) = notification::register_development_identity(app.handle()) {
-                eprintln!("failed to register Cloudburst's notification identity: {error}");
+            #[cfg(windows)]
+            if build_flavor::is_development(app.handle()) {
+                if let Err(error) = notification::register_development_identity(app.handle()) {
+                    eprintln!("failed to register Cloudburst's notification identity: {error}");
+                }
             }
             Ok(())
         })

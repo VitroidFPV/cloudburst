@@ -1,4 +1,16 @@
 export default defineNuxtConfig({
+  $development: {
+    app: {
+      head: {
+        title: 'Cloudburst Dev',
+      },
+    },
+    runtimeConfig: {
+      public: {
+        appName: 'Cloudburst Dev',
+      },
+    },
+  },
   compatibilityDate: '2026-08-27',
   ssr: false,
   telemetry: false,
@@ -17,6 +29,11 @@ export default defineNuxtConfig({
     },
   },
   ignore: ['**/src-tauri/**'],
+  runtimeConfig: {
+    public: {
+      appName: 'Cloudburst',
+    },
+  },
   app: {
     head: {
       title: 'Cloudburst',

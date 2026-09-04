@@ -50,6 +50,6 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && '-' || '' }}
         with:
-          args: ${{ matrix.args }}
+          args: --debug --config src-tauri/tauri.dev.conf.json ${{ matrix.args }}
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: cloudburst-pr-${{ github.event.pull_request.number || 'manual' }}-[platform]-[arch]-[bundle]

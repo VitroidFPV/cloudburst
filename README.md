@@ -22,10 +22,13 @@ pnpm dev:desktop
 Tauri starts the Nuxt development server automatically and keeps Nuxt hot-module replacement active inside the desktop window. Changes to the Rust shell also trigger a native rebuild. To compile the desktop application and platform bundles:
 
 ```sh
-pnpm build:desktop
+pnpm build:desktop:dev
+pnpm build:desktop:production
 ```
 
-The desktop build runs `pnpm generate` before packaging the generated client application.
+`dev:desktop` and `build:desktop:dev` use the **Cloudburst Dev** identity. It has a distinct executable, app-data directory, WebView storage, credential-vault namespace, and Windows magnet-handler entry, so it can run alongside an installed production build without sharing state or replacing its protocol registration. PR preview packages use this development identity too.
+
+`build:desktop` remains an alias for `build:desktop:production`. Desktop builds generate the client application before packaging it.
 
 Useful checks:
 
@@ -38,7 +41,7 @@ pnpm generate
 
 ## Releases
 
-Pull requests and pushes to `main` run the frontend lint, typecheck, tests, static build, and Rust tests in GitHub Actions. Pull requests also produce unsigned Windows, macOS, and Linux preview packages; download them from the **Artifacts** section of the PR's `PR preview builds` workflow run.
+Pull requests and pushes to `main` run the frontend lint, typecheck, tests, static build, and Rust tests in GitHub Actions. Pull requests also produce unsigned **Cloudburst Dev** packages for Windows, macOS, and Linux; download them from the **Artifacts** section of the PR's `PR preview builds` workflow run.
 
 Releases use semantic versions and Git tags. Prepare a release with:
 

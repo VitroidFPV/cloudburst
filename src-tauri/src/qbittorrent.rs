@@ -413,7 +413,7 @@ pub async fn connect_qbittorrent(
     store.upsert(profile.clone());
     connection_profile::persist_store(&app, &store).await?;
     if !secret.is_empty() {
-        connection_profile::write_credential(&profile.id, secret).await?;
+        connection_profile::write_credential(&app, &profile.id, secret).await?;
     }
 
     *active_connection = Some(active);
@@ -431,7 +431,7 @@ pub async fn resolve_connection(
 
     let mut last_error: Option<String> = None;
     for profile in store.resolution_order() {
-        let secret = match connection_profile::read_credential(&profile.id).await {
+        let secret = match connection_profile::read_credential(&app, &profile.id).await {
             Ok(Some(secret)) => secret,
             Ok(None) => {
                 last_error = Some(missing_credential_message(profile.authentication_mode));
@@ -484,7 +484,7 @@ pub async fn connect_saved_qbittorrent(
         .find(|profile| profile.id == id)
         .cloned()
         .ok_or_else(|| "That qBittorrent connection profile no longer exists.".to_string())?;
-    let secret = connection_profile::read_credential(&profile.id)
+    let secret = connection_profile::read_credential(&app, &profile.id)
         .await?
         .ok_or_else(|| missing_credential_message(profile.authentication_mode))?;
 
@@ -511,7 +511,7 @@ pub async fn remove_connection_profile(
     let mut store = connection_profile::load_store(&app).await?;
     let was_active = store.active_id.as_deref() == Some(id.as_str());
 
-    let credential_result = connection_profile::delete_credential(&id).await;
+    let credential_result = connection_profile::delete_credential(&app, &id).await;
     if store.remove(&id) {
         connection_profile::persist_store(&app, &store).await?;
         if was_active {
@@ -895,12 +895,12 @@ async fn establish_connection(
 
 async fn resolve_connection_input(
     input: ConnectionInput,
-    _app: &tauri::AppHandle,
+    app: &tauri::AppHandle,
 ) -> Result<(ConnectionInput, ConnectionProfile, String), String> {
     let profile = input.profile().map_err(|error| error.to_string())?;
     let supplied_secret = input.secret();
     let secret = if supplied_secret.is_empty() {
-        connection_profile::read_credential(&profile.id)
+        connection_profile::read_credential(app, &profile.id)
             .await?
             .ok_or_else(|| missing_credential_message(input.authentication_mode))?
     } else {
