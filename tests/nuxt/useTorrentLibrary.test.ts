@@ -315,6 +315,65 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(library.defaultSavePath.value).toBe('C:/Downloads')
   })
 
+  it.each(['connect', 'connectProfile', 'resolveConnection'] as const)('reloads the default save path after %s changes the connection', async (method) => {
+    const defaultSavePath = vi.fn().mockResolvedValueOnce('C:/Downloads').mockResolvedValue('/mnt/downloads')
+    const library = useTorrentLibrary(createAdapter({
+      connect: vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValue(remoteSnapshot),
+      connectSaved: async () => remoteSnapshot,
+      resolve: async () => ({ profiles: [remoteProfile], activeProfileId: remoteProfile.id, snapshot: remoteSnapshot, error: null }),
+      defaultSavePath,
+    }))
+    await library.connect(connectionInput)
+    await library.loadDefaultSavePath()
+
+    if (method === 'connect') await library.connect({ ...connectionInput, endpoint: remoteProfile.endpoint })
+    else if (method === 'connectProfile') await library.connectProfile(remoteProfile.id)
+    else await library.resolveConnection()
+
+    expect(library.defaultSavePath.value).toBe('')
+    await library.loadDefaultSavePath()
+    expect(library.defaultSavePath.value).toBe('/mnt/downloads')
+    expect(defaultSavePath).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['switch', 'disconnect', 'forget'] as const)('ignores an old save-path response after %s', async (action) => {
+    const oldPath = deferred<string>()
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      connectSaved: async () => remoteSnapshot,
+      removeProfile: async () => profileList([], null),
+      defaultSavePath: vi.fn().mockReturnValueOnce(oldPath.promise).mockResolvedValue('/mnt/downloads'),
+    }))
+    await library.connect(connectionInput)
+    const loading = library.loadDefaultSavePath()
+
+    if (action === 'switch') {
+      await library.connectProfile(remoteProfile.id)
+      await library.loadDefaultSavePath()
+    }
+    else if (action === 'disconnect') await library.disconnect()
+    else await library.forgetProfile(profile.id)
+
+    oldPath.resolve('C:/Downloads')
+    await loading
+    expect(library.defaultSavePath.value).toBe(action === 'switch' ? '/mnt/downloads' : '')
+  })
+
+  it('keeps a pending save-path response valid across ordinary refreshes', async () => {
+    const path = deferred<string>()
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      refresh: async () => snapshot,
+      defaultSavePath: () => path.promise,
+    }))
+    await library.connect(connectionInput)
+    const loading = library.loadDefaultSavePath()
+    await library.refresh()
+    path.resolve('C:/Downloads')
+    await loading
+    expect(library.defaultSavePath.value).toBe('C:/Downloads')
+  })
+
   it('retries saved profiles with backoff and returns to normal polling after recovery', async () => {
     vi.useFakeTimers()
     const failedOutcome: ResolveOutcome = { profiles: [profile], activeProfileId: profile.id, snapshot: null, error: 'Not reachable' }
