@@ -274,11 +274,12 @@ const retryConnection = async () => {
 }
 
 const disconnectConnection = async () => {
-  if (!savedProfile.value) return
+  const profile = savedProfile.value
+  if (!profile) return
 
-  if (await forgetProfile(savedProfile.value.id)) {
+  if (await forgetProfile(profile.id)) {
     settingsOpen.value = false
-    toast.add({ title: 'Connection profile forgotten', description: `${savedProfile.value.endpoint} is no longer saved in Cloudburst.`, color: 'neutral' })
+    toast.add({ title: 'Connection profile forgotten', description: `${profile.endpoint} is no longer saved in Cloudburst.`, color: 'neutral' })
   }
 }
 
