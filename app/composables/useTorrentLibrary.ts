@@ -26,6 +26,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const torrentActionError = useState('torrent-action-error', () => '')
   const operationGeneration = useState('connection-operation-generation', () => 0)
   const defaultSavePath = useState('default-save-path', () => '')
+  const connectionGeneration = useState('connection-generation', () => 0)
 
   const { showPlaceholder } = usePlaceholderSetting()
   const { refreshCadence } = useRefreshCadenceSetting()
@@ -70,6 +71,11 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const isCurrentOperation = (operation: number) => operationGeneration.value === operation
 
+  const resetConnectionCache = () => {
+    connectionGeneration.value += 1
+    defaultSavePath.value = ''
+  }
+
   const applySnapshot = (snapshot: ConnectionSnapshot) => {
     torrents.value = snapshot.torrents
     connectionEndpoint.value = snapshot.endpoint
@@ -95,6 +101,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const connect = async (input: ConnectionInput) => {
     const operation = beginOperation()
+    resetConnectionCache()
     connectionStatus.value = 'connecting'
     connectionError.value = ''
 
@@ -125,6 +132,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     if (adapter === tauriQbittorrentAdapter && (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window))) return false
 
     const operation = beginOperation()
+    resetConnectionCache()
     connectionStatus.value = 'connecting'
     connectionError.value = ''
 
@@ -153,6 +161,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const connectProfile = async (profileId: string) => {
     const operation = beginOperation()
+    resetConnectionCache()
     connectionStatus.value = 'connecting'
     connectionError.value = ''
 
@@ -172,6 +181,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const forgetProfile = async (profileId: string) => {
     const operation = beginOperation()
     const wasActive = activeProfileId.value === profileId
+    if (wasActive) resetConnectionCache()
 
     try {
       const list = await adapter.removeProfile(profileId)
@@ -301,11 +311,13 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   const loadDefaultSavePath = async () => {
     if (defaultSavePath.value || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return
 
+    const generation = connectionGeneration.value
     try {
-      defaultSavePath.value = await adapter.defaultSavePath()
+      const path = await adapter.defaultSavePath()
+      if (generation === connectionGeneration.value) defaultSavePath.value = path
     }
     catch {
-      defaultSavePath.value = ''
+      // Leave the cache available for a later attempt.
     }
   }
 
@@ -509,6 +521,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const disconnect = async () => {
     const operation = beginOperation()
+    resetConnectionCache()
 
     try {
       await adapter.disconnect()
