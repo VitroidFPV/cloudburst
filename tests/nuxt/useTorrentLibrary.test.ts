@@ -344,6 +344,39 @@ describe('useTorrentLibrary connection lifecycle', () => {
     stop()
   })
 
+  it('leaves a manual connection in progress when the polling timer fires', async () => {
+    vi.useFakeTimers()
+    const pendingConnection = deferred<ConnectionSnapshot>()
+    const resolve = vi.fn()
+    const refresh = vi.fn().mockResolvedValue(remoteSnapshot)
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      connectSaved: () => pendingConnection.promise,
+      resolve,
+      refresh,
+    }))
+
+    await library.connect(connectionInput)
+    const stop = library.startAutoRefresh()
+    try {
+      const connection = library.connectProfile(remoteProfile.id)
+      await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS * 2)
+      expect(resolve).not.toHaveBeenCalled()
+      expect(refresh).not.toHaveBeenCalled()
+      expect(library.connectionStatus.value).toBe('connecting')
+
+      pendingConnection.resolve(remoteSnapshot)
+      expect(await connection).toBe(true)
+      expect(library.connectionEndpoint.value).toBe(remoteProfile.endpoint)
+
+      await vi.advanceTimersByTimeAsync(CONNECTION_POLL_INTERVAL_MS)
+      expect(refresh).toHaveBeenCalledOnce()
+    }
+    finally {
+      stop()
+    }
+  })
+
   it('caps repeated reconnect attempts at the longest retry delay', async () => {
     vi.useFakeTimers()
     const resolve = vi.fn().mockResolvedValue({ profiles: [profile], activeProfileId: profile.id, snapshot: null, error: 'Not reachable' })

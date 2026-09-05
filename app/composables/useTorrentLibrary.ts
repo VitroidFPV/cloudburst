@@ -552,7 +552,7 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
       let successful: boolean | undefined
       if (connectionStatus.value === 'connected') successful = await refresh()
-      else if (savedProfiles.value.length) successful = await resolveConnection()
+      else if (connectionStatus.value === 'disconnected' && savedProfiles.value.length) successful = await resolveConnection()
 
       if (stopped) return
       if (successful === false && savedProfiles.value.length) {
