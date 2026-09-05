@@ -80,6 +80,18 @@ export interface AddTorrentsOutcome {
   failureCount: number
   pendingCount: number
   addedTorrentIds: string[]
+  rejectionReason?: string
+}
+
+export interface AddTorrentResult {
+  status: 'added' | 'rejected' | 'pending' | 'unknown' | 'notSubmitted'
+  message?: string
+}
+
+export interface AddTorrentsBatchOutcome {
+  // Results follow input order: URLs, then files.
+  results: AddTorrentResult[]
+  addedTorrentIds: string[]
 }
 
 export interface TorrentMetadataFile {

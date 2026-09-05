@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AddContentLayout, AddTorrentFile, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
+import type { AddContentLayout, AddTorrentFile, AddTorrentResult, AddTorrentsBatchOutcome, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
 import { formatBytes } from '~/utils/torrent-format'
 import { fileToBase64 } from '~/utils/torrent-file'
 import { commonRootFolder } from '~/utils/torrent-file-tree'
@@ -27,7 +27,23 @@ type SingleSource = { kind: 'file', file: ChosenFile } | { kind: 'url', url: str
 
 const rememberedSavePathStorageKey = 'cloudburst:last-save-path'
 const open = ref(false)
-const step = ref<'sources' | 'review'>('sources')
+const step = ref<'sources' | 'review' | 'results'>('sources')
+const submissionError = ref('')
+const preparing = ref(false)
+const busy = computed(() => props.pending || preparing.value)
+const submittedSources = ref<SingleSource[]>([])
+const waitingSources = ref<{ urls: string[], files: File[] }>({ urls: [], files: [] })
+const waitingSourceCount = computed(() => waitingSources.value.urls.length + waitingSources.value.files.length)
+const results = ref<AddTorrentResult[]>([])
+const resultLabels: Record<AddTorrentResult['status'], string> = {
+  added: 'Added', rejected: 'Rejected', pending: 'Still fetching', unknown: 'Result unknown', notSubmitted: 'Not submitted',
+}
+const resultColors = { added: 'success', rejected: 'error', pending: 'info', unknown: 'warning', notSubmitted: 'neutral' } as const
+const canEditResult = (result: AddTorrentResult) => result.status === 'rejected' || result.status === 'notSubmitted'
+const hasFailedSources = computed(() => results.value.some(canEditResult))
+const hasPendingSources = computed(() => results.value.some(result => result.status === 'pending'))
+const hasUnknownSources = computed(() => results.value.some(result => result.status === 'unknown'))
+const sourceLabel = (source: SingleSource | undefined) => source?.kind === 'file' ? source.file.name : source?.url
 const urlsText = ref('')
 const chosenFiles = ref<ChosenFile[]>([])
 const category = ref('')
@@ -50,8 +66,9 @@ const folderLayoutItems = [
 
 const sourceCount = computed(() => urlsText.value.split(/\r?\n/).filter(line => line.trim()).length + chosenFiles.value.length)
 const isReview = computed(() => step.value === 'review')
-const modalTitle = computed(() => (isReview.value ? (sourceCount.value === 1 ? 'Review torrent' : 'Review torrents') : 'Add torrents'))
-const modalDescription = computed(() => isReview.value
+const modalTitle = computed(() => step.value === 'results' ? 'Add results' : (isReview.value ? (sourceCount.value === 1 ? 'Review torrent' : 'Review torrents') : 'Add torrents'))
+const modalDescription = computed(() => step.value === 'results'
+  ? 'Review what happened to each source.' : isReview.value
   ? 'Choose where the torrent lands, then add it to qBittorrent.'
   : 'Submit magnet links, URLs, or .torrent files to the active qBittorrent instance.')
 const submitLabel = computed(() => sourceCount.value === 1 ? 'Add torrent' : `Add ${sourceCount.value} torrents`)
@@ -75,11 +92,42 @@ const emitAdd = (input: AddTorrentsInput) => {
   const path = savePath.value.trim()
   if (rememberSavePath.value && path) localStorage.setItem(rememberedSavePathStorageKey, path)
   else localStorage.removeItem(rememberedSavePathStorageKey)
+  submittedSources.value = singleSource.value ? [singleSource.value] : [
+    ...parseUrlList().map(url => ({ kind: 'url' as const, url })),
+    ...chosenFiles.value.map(file => ({ kind: 'file' as const, file })),
+  ]
+  clearPolling()
   emit('add', input)
+}
+
+const showOutcome = (outcome: AddTorrentsBatchOutcome | null, error?: string) => {
+  if (!outcome) {
+    submissionError.value = error || 'Could not add torrents. Your sources and settings have been kept.'
+    return
+  }
+  if (outcome.results.length && outcome.results.every(result => result.status === 'added')) {
+    close()
+    return
+  }
+  results.value = outcome.results
+  step.value = 'results'
+  resetMetadataState()
+}
+
+const editFailedSources = () => {
+  const failed = submittedSources.value.filter((_, index) => results.value[index] && canEditResult(results.value[index]!))
+  urlsText.value = failed.flatMap(source => source.kind === 'url' ? [source.url] : []).join('\n')
+  chosenFiles.value = failed.flatMap(source => source.kind === 'file' ? [source.file] : [])
+  results.value = []
+  submissionError.value = ''
+  backToSources()
 }
 
 const resetForm = () => {
   step.value = 'sources'
+  results.value = []
+  submittedSources.value = []
+  submissionError.value = ''
   urlsText.value = ''
   chosenFiles.value = []
   category.value = ''
@@ -112,6 +160,11 @@ const addFiles = (files: File[]) => {
 }
 
 const openWith = (options: { urls?: string[], files?: File[] } = {}) => {
+  if (open.value && (busy.value || step.value === 'results')) {
+    waitingSources.value.urls.push(...(options.urls ?? []))
+    waitingSources.value.files.push(...(options.files ?? []))
+    return
+  }
   resetForm()
   options.urls?.forEach(appendUrl)
   if (options.files?.length) addFiles(options.files)
@@ -120,6 +173,12 @@ const openWith = (options: { urls?: string[], files?: File[] } = {}) => {
 
 const close = () => {
   open.value = false
+  clearPolling()
+  if (waitingSourceCount.value) {
+    const sources = waitingSources.value
+    waitingSources.value = { urls: [], files: [] }
+    openWith(sources)
+  }
 }
 
 const chooseFiles = () => {
@@ -148,8 +207,9 @@ const browseForFolder = async () => {
 }
 
 const continueToReview = () => {
-  if (props.pending || !sourceCount.value) return
+  if (busy.value || !sourceCount.value) return
 
+  submissionError.value = ''
   step.value = 'review'
   resetMetadataState()
 
@@ -171,14 +231,20 @@ const loadFileMetadata = async () => {
   metadataLoading.value = true
   metadataFailed.value = false
 
-  const base64Content = await fileToBase64(source.file.file)
-  if (singleSource.value !== source || !open.value) return
-  const parsed = await props.parseMetadata([{ name: source.file.name, base64Content }])
-  if (singleSource.value !== source || !open.value) return
-
-  metadata.value = parsed?.[0] ?? null
-  metadataFailed.value = !metadata.value
-  metadataLoading.value = false
+  try {
+    const base64Content = await fileToBase64(source.file.file)
+    if (singleSource.value !== source || !open.value) return
+    const parsed = await props.parseMetadata([{ name: source.file.name, base64Content }])
+    if (singleSource.value !== source || !open.value) return
+    metadata.value = parsed?.[0] ?? null
+    metadataFailed.value = !metadata.value
+  }
+  catch {
+    if (singleSource.value === source) metadataFailed.value = true
+  }
+  finally {
+    if (singleSource.value === source) metadataLoading.value = false
+  }
 }
 
 const startPolling = (source: string) => {
@@ -187,7 +253,7 @@ const startPolling = (source: string) => {
 
   const tick = async () => {
     const result = await props.fetchMetadata(source)
-    if (step.value !== 'review' || singleSource.value?.kind !== 'url' || singleSource.value.url !== source || !open.value) return
+    if (busy.value || step.value !== 'review' || singleSource.value?.kind !== 'url' || singleSource.value.url !== source || !open.value) return
 
     if (result?.status === 'ready') {
       metadata.value = result.metadata
@@ -220,8 +286,7 @@ const onTreeChange = (payload: { priorities: number[], selectedSize: number, all
   treeSelection.value = payload
 }
 
-const submit = async () => {
-  if (props.pending || !sourceCount.value) return
+const prepareSubmission = async () => {
   const urls = parseUrlList()
 
   if (singleSource.value) {
@@ -258,20 +323,30 @@ const submit = async () => {
   }
 
   const files: AddTorrentFile[] = []
-  try {
-    for (const chosen of chosenFiles.value) {
-      files.push({ name: chosen.name, base64Content: await fileToBase64(chosen.file) })
-    }
-  }
-  catch {
-    return
+  for (const chosen of chosenFiles.value) {
+    files.push({ name: chosen.name, base64Content: await fileToBase64(chosen.file) })
   }
   emitAdd({ urls, files, ...commonOptions() })
 }
 
+const submit = async () => {
+  if (busy.value || !sourceCount.value) return
+  preparing.value = true
+  submissionError.value = ''
+  try {
+    await prepareSubmission()
+  }
+  catch (error) {
+    submissionError.value = `Could not prepare torrent files: ${error instanceof Error ? error.message : String(error)}`
+  }
+  finally {
+    preparing.value = false
+  }
+}
+
 onBeforeUnmount(clearPolling)
 
-defineExpose({ openWith, close })
+defineExpose({ openWith, close, showOutcome })
 </script>
 
 <template>
@@ -279,10 +354,27 @@ defineExpose({ openWith, close })
     v-model:open="open"
     :title="modalTitle"
     :description="modalDescription"
+    :dismissible="!busy"
+    :close="busy ? false : undefined"
     :ui="{ content: treePaneVisible ? 'max-w-7xl' : 'max-w-3xl' }"
   >
     <template #body>
-      <div v-if="step === 'sources'" class="space-y-5">
+      <p v-if="waitingSourceCount" class="mb-4 text-sm text-muted">{{ waitingSourceCount }} incoming {{ waitingSourceCount === 1 ? 'source is' : 'sources are' }} waiting for review after this batch.</p>
+      <div v-if="submissionError" role="alert" class="mb-4 rounded-md border border-error/30 bg-error/10 px-3 py-2.5 text-sm text-error">{{ submissionError }}</div>
+      <div v-if="step === 'results'" class="space-y-4" aria-live="polite">
+        <ul class="max-h-80 divide-y divide-default overflow-y-auto" aria-label="Source results">
+          <li v-for="(result, index) in results" :key="index" class="py-3 first:pt-0">
+            <div class="flex items-start justify-between gap-3">
+              <span class="min-w-0 break-all text-sm text-highlighted">{{ sourceLabel(submittedSources[index]) }}</span>
+              <UBadge :label="resultLabels[result.status]" :color="resultColors[result.status]" variant="subtle" class="shrink-0" />
+            </div>
+            <p v-if="result.message || result.status === 'rejected'" class="mt-1 break-words text-xs text-muted">{{ result.message || 'qBittorrent rejected this source without a specific reason.' }}</p>
+          </li>
+        </ul>
+        <p v-if="hasPendingSources" class="text-sm text-muted">Pending sources were accepted for fetching. They will appear in the library once resolved; you can close this dialog.</p>
+        <p v-if="hasUnknownSources" class="text-sm text-muted">Some results could not be confirmed. Check the library before adding those sources again; qBittorrent may already have accepted them.</p>
+      </div>
+      <div v-else-if="step === 'sources'" class="space-y-5">
         <UFormField label="Magnet links or URLs" description="One magnet link or .torrent URL per line.">
           <UTextarea
             v-model="urlsText"
@@ -312,7 +404,7 @@ defineExpose({ openWith, close })
               variant="outline"
               size="sm"
               aria-label="Choose torrent files"
-              :disabled="pending"
+              :disabled="busy"
               @click="chooseFiles"
             />
             <ul v-if="chosenFiles.length" class="space-y-1">
@@ -326,7 +418,7 @@ defineExpose({ openWith, close })
                   variant="ghost"
                   size="xs"
                   :aria-label="`Remove ${chosen.name}`"
-                  :disabled="pending"
+                  :disabled="busy"
                   @click="removeFile(chosen.name)"
                 />
               </li>
@@ -339,7 +431,7 @@ defineExpose({ openWith, close })
         </p>
       </div>
 
-      <div v-else>
+      <fieldset v-else :disabled="busy" class="min-w-0">
         <div :class="treePaneVisible ? 'grid items-start gap-5 lg:grid-cols-[minmax(18rem,2fr)_minmax(18rem,3fr)]' : ''">
           <div class="space-y-5 lg:pe-5">
             <div class="grid gap-4">
@@ -381,7 +473,7 @@ defineExpose({ openWith, close })
                   variant="outline"
                   size="sm"
                   aria-label="Browse for folder"
-                  :disabled="pending"
+                  :disabled="busy"
                   @click="browseForFolder"
                 />
               </div>
@@ -416,11 +508,15 @@ defineExpose({ openWith, close })
             />
           </div>
         </div>
-      </div>
+      </fieldset>
     </template>
 
     <template #footer>
-      <div class="flex w-full items-center justify-end gap-2">
+      <div v-if="step === 'results'" class="flex w-full items-center justify-end gap-2">
+        <UButton v-if="hasFailedSources" label="Edit failed sources" color="neutral" variant="outline" @click="editFailedSources" />
+        <UButton label="Done" @click="close" />
+      </div>
+      <div v-else class="flex w-full items-center justify-end gap-2">
         <UButton
           v-if="step === 'sources'"
           type="button"
@@ -435,7 +531,7 @@ defineExpose({ openWith, close })
           label="Back"
           color="neutral"
           variant="ghost"
-          :disabled="pending"
+          :disabled="busy"
           @click="backToSources"
         />
         <UButton
@@ -444,7 +540,7 @@ defineExpose({ openWith, close })
           label="Continue"
           icon="i-lucide-arrow-right"
           trailing
-          :disabled="!sourceCount || pending"
+          :disabled="!sourceCount || busy"
           @click="continueToReview"
         />
         <UButton
@@ -452,7 +548,7 @@ defineExpose({ openWith, close })
           type="button"
           :label="submitLabel"
           icon="i-lucide-plus"
-          :loading="pending"
+          :loading="busy"
           :disabled="!sourceCount"
           @click="submit"
         />

@@ -2,7 +2,7 @@ import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import AddTorrentModal from '~/components/AddTorrentModal.vue'
-import type { AddTorrentFile, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsBatchOutcome, AddTorrentsInput, MetadataFetch, TorrentMetadata } from '~/types/torrent'
 
 const mountedWrappers: VueWrapper[] = []
 
@@ -54,6 +54,11 @@ const clickButtonWithLabel = async (label: string) => {
 
 const emittedInput = (wrapper: VueWrapper) =>
   (wrapper.emitted('add') as Array<[AddTorrentsInput]>).at(-1)![0]
+
+const modalApi = (wrapper: VueWrapper) => wrapper.vm as unknown as {
+  openWith: (options: { urls?: string[], files?: File[] }) => void
+  showOutcome: (outcome: AddTorrentsBatchOutcome | null, error?: string) => void
+}
 
 describe('AddTorrentModal', () => {
   beforeEach(() => localStorage.clear())
@@ -243,5 +248,90 @@ describe('AddTorrentModal', () => {
     expect(emittedInput(wrapper).urls).toEqual(['v2hash'])
     expect(emittedInput(wrapper).files).toEqual([])
     expect(emittedInput(wrapper).filePriorities).toBeUndefined()
+
+    modalApi(wrapper).showOutcome({ results: [{ status: 'rejected' }], addedTorrentIds: [] })
+    await flushPromises()
+    expect(document.body.querySelector('[aria-label="Source results"]')?.textContent).toContain('show.torrent')
+    await clickButtonWithLabel('Edit failed sources')
+    expect(document.body.textContent).toContain('show.torrent')
+    await clickButtonWithLabel('Continue')
+    await clickButtonWithLabel('Add torrent')
+    expect(emittedInput(wrapper).urls).toEqual(['v2hash'])
+  })
+
+  it('edits only failed sources after mixed outcomes while preserving settings', async () => {
+    const wrapper = await mountModal()
+    const urls = ['https://example.test/added.torrent', 'https://example.test/rejected.torrent', 'https://example.test/pending.torrent', 'https://example.test/unknown.torrent']
+    modalApi(wrapper).openWith({ urls })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+    for (const [label, value] of [['Category', 'Linux'], ['Save location', 'D:/ISOs']]) {
+      const input = document.body.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!
+      input.value = value!
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    await flushPromises()
+    await clickButtonWithLabel('Add 4 torrents')
+    modalApi(wrapper).showOutcome({
+      results: [{ status: 'added' }, { status: 'rejected' }, { status: 'pending' }, { status: 'unknown', message: 'Connection lost' }],
+      addedTorrentIds: ['new'],
+    })
+    await flushPromises()
+    expect(document.body.textContent).toContain('Still fetching')
+    expect(document.body.textContent).toContain('Connection lost')
+    await clickButtonWithLabel('Edit failed sources')
+    expect(findInModal<HTMLTextAreaElement>('textarea')[0]!.value).toBe(urls[1])
+    await clickButtonWithLabel('Continue')
+    expect(document.body.querySelector<HTMLInputElement>('[aria-label="Save location"]')!.value).toBe('D:/ISOs')
+    await clickButtonWithLabel('Add torrent')
+    expect(emittedInput(wrapper)).toMatchObject({ urls: [urls[1]], category: 'Linux', savePath: 'D:/ISOs' })
+    modalApi(wrapper).showOutcome({ results: [{ status: 'added' }], addedTorrentIds: ['retried'] })
+    await flushPromises()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('does not offer retry for pending or unconfirmed sources', async () => {
+    const wrapper = await mountModal()
+    modalApi(wrapper).openWith({ urls: ['pending', 'unknown'] })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+    await clickButtonWithLabel('Add 2 torrents')
+    modalApi(wrapper).showOutcome({ results: [{ status: 'pending' }, { status: 'unknown' }], addedTorrentIds: [] })
+    await flushPromises()
+    expect(document.body.textContent).toContain('Check the library')
+    expect(document.body.textContent).not.toContain('Edit failed sources')
+    expect(document.body.textContent).not.toContain('Add 2 torrents')
+    await clickButtonWithLabel('Done')
+  })
+
+  it('keeps sources and settings available when submission is unavailable', async () => {
+    const wrapper = await mountModal()
+    modalApi(wrapper).openWith({ urls: ['first', 'second'] })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+    await clickButtonWithLabel('Add 2 torrents')
+    modalApi(wrapper).showOutcome(null, 'Connect to qBittorrent before adding torrents.')
+    await flushPromises()
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('Connect to qBittorrent')
+    await clickButtonWithLabel('Back')
+    expect(findInModal<HTMLTextAreaElement>('textarea')[0]!.value).toBe('first\nsecond')
+  })
+
+  it('queues incoming magnets instead of replacing a batch awaiting results', async () => {
+    const wrapper = await mountModal()
+    modalApi(wrapper).openWith({ urls: ['first', 'second'] })
+    await flushPromises()
+    await clickButtonWithLabel('Continue')
+    await clickButtonWithLabel('Add 2 torrents')
+    await wrapper.setProps({ pending: true })
+    modalApi(wrapper).openWith({ urls: ['incoming'] })
+    await flushPromises()
+    expect(document.body.textContent).toContain('1 incoming source is waiting')
+    await wrapper.setProps({ pending: false })
+    modalApi(wrapper).showOutcome({ results: [{ status: 'added' }, { status: 'rejected' }], addedTorrentIds: ['new'] })
+    await flushPromises()
+    expect(document.body.querySelector('[aria-label="Source results"]')?.textContent).toContain('second')
+    await clickButtonWithLabel('Done')
+    expect(findInModal<HTMLTextAreaElement>('textarea')[0]!.value).toBe('incoming')
   })
 })

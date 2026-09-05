@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AddTorrentsInput, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus, TorrentContentAction } from '~/types/torrent'
+import type { AddTorrentsInput, AddTorrentsBatchOutcome, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus, TorrentContentAction } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { isLoopbackEndpoint } from '~/utils/connection'
@@ -10,6 +10,7 @@ import { formatSpeed } from '~/utils/torrent-format'
 interface AddTorrentModalApi {
   openWith: (options?: { urls?: string[], files?: File[] }) => void
   close: () => void
+  showOutcome: (outcome: AddTorrentsBatchOutcome | null, error?: string) => void
 }
 
 const toast = useToast()
@@ -350,55 +351,17 @@ const openAddModal = () => {
 const addTorrentsFromModal = async (input: AddTorrentsInput) => {
   const outcome = await addTorrents(input)
 
-  if (!outcome) {
+  addModal.value?.showOutcome(outcome, torrentActionError.value || 'Connect to qBittorrent before adding torrents.')
+  if (!outcome) return
+
+  if (outcome.addedTorrentIds.length) autoSelectIds.value = outcome.addedTorrentIds
+  if (outcome.results.every(result => result.status === 'added')) {
     toast.add({
-      title: 'Could not add torrents',
-      description: torrentActionError.value || 'Torrents cannot be added while qBittorrent is disconnected.',
-      color: 'error',
-    })
-    return
-  }
-
-  const { successCount, failureCount, pendingCount, addedTorrentIds } = outcome
-
-  if (!successCount && !pendingCount) {
-    toast.add({
-      title: 'qBittorrent added nothing',
-      description: 'Every source was rejected — usually duplicates or unreachable URLs.',
-      color: 'error',
-    })
-    return
-  }
-
-  addModal.value?.close()
-  if (addedTorrentIds.length) autoSelectIds.value = addedTorrentIds
-
-  if (successCount) {
-    toast.add({
-      title: successCount === 1 ? 'Torrent added' : `${successCount} torrents added`,
-      description: pendingCount
-        ? `${pendingCount} more ${pendingCount === 1 ? 'source is' : 'sources are'} still being fetched by qBittorrent.`
-        : undefined,
+      title: outcome.results.length === 1 ? 'Torrent added' : `${outcome.results.length} torrents added`,
       color: 'success',
     })
   }
-  else {
-    toast.add({
-      title: 'qBittorrent is fetching the torrent',
-      description: 'The library updates once the metadata arrives.',
-      color: 'info',
-    })
-  }
-
-  if (failureCount) {
-    toast.add({
-      title: failureCount === 1 ? 'One source was rejected' : `${failureCount} sources were rejected`,
-      description: 'Usually duplicates already in the library or unreachable URLs.',
-      color: 'warning',
-    })
-  }
 }
-
 const extractMagnets = (text: string) => text
   .split(/\r?\n/)
   .map(line => line.trim())
