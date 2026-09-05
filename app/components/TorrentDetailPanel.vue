@@ -50,6 +50,7 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined
 let pollGeneration = 0
 
 const stopPolling = () => {
+  pollGeneration += 1
   if (pollTimer) {
     clearTimeout(pollTimer)
     pollTimer = undefined
