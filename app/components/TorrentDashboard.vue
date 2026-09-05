@@ -103,7 +103,7 @@ const libraryItems = computed<NavigationMenuItem[]>(() => filters.value.map(filt
   label: filter.label,
   icon: filter.icon,
   badge: String(filter.count),
-  active: activeFilter.value === filter.id && !activeCategory.value,
+  active: activeFilter.value === filter.id,
   onSelect: () => chooseFilter(filter.id),
 })))
 
@@ -121,6 +121,12 @@ const categoryItems = computed<NavigationMenuItem[]>(() => [
     onSelect: () => chooseCategory(category),
   })),
 ])
+
+const activeFilterLabel = computed(() => filters.value.find(filter => filter.id === activeFilter.value)?.label)
+const clearFilters = () => {
+  chooseFilter('all')
+  chooseCategory('')
+}
 
 const connectionBadge = computed(() => {
   if (showPlaceholder.value) return { label: 'Placeholder', color: 'neutral' as const }
@@ -619,6 +625,12 @@ onBeforeUnmount(() => {
           </template>
 
           <template #notice>
+            <div v-if="activeFilter !== 'all' || activeCategory" class="flex shrink-0 flex-wrap items-center gap-2 border-b border-default px-4 py-2 sm:px-6" aria-label="Active filters">
+              <UButton v-if="activeFilter !== 'all'" :label="activeFilterLabel" icon="i-lucide-x" trailing color="neutral" variant="soft" size="xs" :aria-label="`Clear ${activeFilterLabel} filter`" @click="chooseFilter('all')" />
+              <UButton v-if="activeCategory" :label="activeCategory" icon="i-lucide-x" trailing color="neutral" variant="soft" size="xs" :aria-label="`Clear category ${activeCategory}`" @click="chooseCategory('')" />
+              <span class="text-xs text-muted">{{ visibleTorrents.length }} of {{ torrents.length }} torrents</span>
+              <UButton label="Clear filters" color="neutral" variant="link" size="xs" @click="clearFilters" />
+            </div>
             <div v-if="stale && !showPlaceholder" class="mx-4 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/35 bg-warning/10 px-4 py-3 text-sm sm:mx-6 sm:mt-6">
               <div class="flex min-w-0 items-start gap-3">
                 <UIcon name="i-lucide-cloud-off" class="mt-0.5 size-4 shrink-0 text-warning" />
@@ -651,7 +663,8 @@ onBeforeUnmount(() => {
             <div v-else>
               <UIcon name="i-lucide-list-filter" class="mx-auto size-8 text-muted" />
               <p class="mt-3 font-medium text-highlighted">No torrents in this view</p>
-              <p class="mt-1 text-sm text-muted">Choose another filter from the sidebar.</p>
+              <p class="mt-1 text-sm text-muted">No torrents match the selected filters.</p>
+              <UButton class="mt-3" label="Clear filters" color="neutral" variant="soft" size="sm" @click="clearFilters" />
             </div>
           </template>
         </TorrentTable>

@@ -108,6 +108,28 @@ describe('useTorrentLibrary connection lifecycle', () => {
     vi.useRealTimers()
   })
 
+  it('combines status and category filters and clears each independently', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => ({ ...snapshot, torrents: [
+        torrent,
+        { ...torrent, id: 'seed', status: 'seeding' },
+        { ...torrent, id: 'movie', category: 'Movies' },
+      ] }),
+    }))
+    await library.connect(connectionInput)
+    library.chooseFilter('downloading')
+    library.chooseCategory('Linux')
+    expect(library.activeFilter.value).toBe('downloading')
+    expect(library.visibleTorrents.value.map(torrent => torrent.id)).toEqual(['torrent-1'])
+    library.chooseFilter('seeding')
+    expect(library.activeCategory.value).toBe('Linux')
+    expect(library.visibleTorrents.value.map(torrent => torrent.id)).toEqual(['seed'])
+    library.chooseFilter('all')
+    expect(library.visibleTorrents.value).toHaveLength(2)
+    library.chooseCategory('')
+    expect(library.visibleTorrents.value).toHaveLength(3)
+  })
+
   it('ignores a refresh result superseded by going offline', async () => {
     const pendingRefresh = deferred<ConnectionSnapshot>()
     const adapter = createAdapter({
