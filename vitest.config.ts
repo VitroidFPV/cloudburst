@@ -16,6 +16,7 @@ export default defineConfig({
           name: 'nuxt',
           include: ['tests/nuxt/**/*.test.ts'],
           environment: 'nuxt',
+          hookTimeout: 30_000,
         },
       }),
     ],

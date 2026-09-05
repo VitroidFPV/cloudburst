@@ -6,8 +6,8 @@ import AppSettingsModal from '~/components/AppSettingsModal.vue'
 
 const mountedWrappers: VueWrapper[] = []
 
-const mountModal = async () => {
-  const wrapper = await mountSuspended(AppSettingsModal, { props: { open: true } })
+const mountModal = async (canConfigureMagnets = false) => {
+  const wrapper = await mountSuspended(AppSettingsModal, { props: { open: true, canConfigureMagnets } })
   mountedWrappers.push(wrapper)
   await flushPromises()
   return wrapper
@@ -80,5 +80,16 @@ describe('AppSettingsModal', () => {
     await flushPromises()
 
     expect(localStorage.getItem('cloudburst:placeholder-enabled')).toBe('true')
+  })
+
+  it('keeps magnet setup accessible from Windows settings', async () => {
+    const wrapper = await mountModal(true)
+    const setup = document.body.querySelector<HTMLButtonElement>('[aria-label="Set up magnet links"]')
+
+    expect(setup).toBeDefined()
+    setup!.click()
+    await flushPromises()
+
+    expect(wrapper.emitted('magnet-settings')).toEqual([[]])
   })
 })

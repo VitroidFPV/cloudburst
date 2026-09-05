@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { invoke } from '@tauri-apps/api/core'
 import type { NavigationMenuItem } from '@nuxt/ui'
-import type { AddTorrentsInput, AddTorrentsBatchOutcome, AuthenticationMode, ConnectionInput, ConnectionProfile, MagnetHandlerStatus, TorrentContentAction } from '~/types/torrent'
+import type { AddTorrentsInput, AddTorrentsBatchOutcome, AuthenticationMode, ConnectionInput, ConnectionProfile, TorrentContentAction } from '~/types/torrent'
 import { useTorrentLibrary } from '~/composables/useTorrentLibrary'
 import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { isLoopbackEndpoint } from '~/utils/connection'
@@ -17,6 +16,7 @@ const toast = useToast()
 const { appName } = useRuntimeConfig().public
 const { showPlaceholder } = usePlaceholderSetting()
 const { sendTorrentNotification } = useTorrentNotificationSetting()
+const { hintOpen: magnetHintOpen, supported: canConfigureMagnets, checkHandler: checkMagnetHandler, showSetup: showMagnetSetup, openSettings: openDefaultAppsSettings } = useMagnetHandler()
 const {
   torrents,
   visibleTorrents,
@@ -429,27 +429,18 @@ const listenForMagnetLinks = async () => {
   }
 }
 
-const magnetHintOpen = ref(false)
-const magnetHintKind = ref<MagnetHandlerStatus>('otherProgram')
-
-const checkMagnetHandler = async () => {
-  if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
-  if (!navigator.userAgent.includes('Windows')) return
-
+const openMagnetSettings = async () => {
   try {
-    const status = await invoke<MagnetHandlerStatus>('magnet_handler_status')
-    if (status === 'cloudburstDefault') return
-    magnetHintKind.value = status
-    magnetHintOpen.value = true
+    await openDefaultAppsSettings()
   }
   catch {
-    // Handler detection is best-effort; adding torrents works regardless.
+    toast.add({ title: 'Could not open Windows Settings', description: 'Open Settings → Apps → Default apps and search for magnet.', color: 'error' })
   }
 }
 
-const openMagnetSettings = () => {
-  magnetHintOpen.value = false
-  void invoke('open_default_apps_settings')
+const openMagnetSetup = () => {
+  appSettingsOpen.value = false
+  showMagnetSetup()
 }
 
 watch(connectionStatus, (status) => {
@@ -622,6 +613,8 @@ onBeforeUnmount(() => {
               <UIcon name="i-lucide-inbox" class="mx-auto size-9 text-muted" />
               <p class="mt-3 font-medium text-highlighted">No torrents in qBittorrent</p>
               <p class="mt-1 text-sm text-muted">The connection is healthy and the torrent library is empty.</p>
+              <UButton class="mt-4" label="Add torrent" icon="i-lucide-plus" :disabled="torrentActionsDisabled" @click="openAddModal" />
+              <p class="mt-2 text-xs text-muted">Or drop .torrent files or magnet links anywhere in this window.</p>
             </div>
             <div v-else>
               <UIcon name="i-lucide-list-filter" class="mx-auto size-8 text-muted" />
@@ -675,11 +668,11 @@ onBeforeUnmount(() => {
       @add="addTorrentsFromModal"
     />
 
-  <AppSettingsModal v-model:open="appSettingsOpen" />
+  <AppSettingsModal v-model:open="appSettingsOpen" :can-configure-magnets="canConfigureMagnets" @magnet-settings="openMagnetSetup" />
 
   <UModal
     v-model:open="magnetHintOpen"
-    :title="`${appName} is not your magnet link handler`"
+    :title="`Open magnet links with ${appName}`"
     description="Windows routes magnet links to the program chosen in the system's default apps."
   >
     <template #body>
