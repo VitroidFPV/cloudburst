@@ -5,6 +5,7 @@ import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbi
 import { uiDebugTorrents } from '~/utils/ui-debug'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error)
+const normalizeTorrentIds = (ids: string[]) => [...new Set(ids.map(id => id.trim()).filter(Boolean))]
 
 export const CONNECTION_POLL_INTERVAL_MS = REFRESH_CADENCE_INTERVALS_MS.normal
 export const CONNECTION_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const
@@ -220,82 +221,50 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     }
   }
 
-  const setTorrentsPaused = async (torrentIds: string[], paused: boolean) => {
-    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
+  const runTorrentMutation = async <T>(
+    mutate: () => Promise<T>,
+    snapshotFor: (result: T) => ConnectionSnapshot | Promise<ConnectionSnapshot> = () => adapter.refresh(),
+  ): Promise<T | null> => {
+    if (connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
 
     const operation = beginOperation()
     activityUpdating.value = true
     torrentActionError.value = ''
 
     try {
-      const snapshot = await adapter.setTorrentPaused(uniqueTorrentIds, paused)
-      if (!isCurrentOperation(operation)) return false
-
-      applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
-  }
-
-  const removeTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
-    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      const snapshot = await adapter.removeTorrents(uniqueTorrentIds, deleteFiles)
-      if (!isCurrentOperation(operation)) return false
-
-      applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
-  }
-
-  const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsOutcome | null> => {
-    const hasSources = input.urls.some(url => url.trim()) || input.files.length > 0
-    if (!hasSources || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return null
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      const outcome = await adapter.addTorrents(input)
+      const result = await mutate()
       if (!isCurrentOperation(operation)) return null
 
-      // The add endpoint reports counts instead of a snapshot; adopt the
-      // authoritative list once the instance has processed the request.
-      const snapshot = await adapter.refresh()
-      if (isCurrentOperation(operation)) applySnapshot(snapshot)
-      return outcome
+      const snapshot = await snapshotFor(result)
+      if (!isCurrentOperation(operation)) return null
+
+      applySnapshot(snapshot)
+      return result
     }
     catch (error) {
-      if (!isCurrentOperation(operation)) return null
-      torrentActionError.value = errorMessage(error)
+      if (isCurrentOperation(operation)) torrentActionError.value = errorMessage(error)
       return null
     }
     finally {
       if (isCurrentOperation(operation)) activityUpdating.value = false
     }
+  }
+
+  const setTorrentsPaused = async (torrentIds: string[], paused: boolean) => {
+    const ids = normalizeTorrentIds(torrentIds)
+    if (!ids.length) return false
+    return await runTorrentMutation(() => adapter.setTorrentPaused(ids, paused), snapshot => snapshot) !== null
+  }
+
+  const removeTorrents = async (torrentIds: string[], deleteFiles: boolean) => {
+    const ids = normalizeTorrentIds(torrentIds)
+    if (!ids.length) return false
+    return await runTorrentMutation(() => adapter.removeTorrents(ids, deleteFiles), snapshot => snapshot) !== null
+  }
+
+  const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsOutcome | null> => {
+    if (!input.urls.some(url => url.trim()) && !input.files.length) return null
+    return runTorrentMutation(() => adapter.addTorrents(input))
   }
 
   const loadDefaultSavePath = async () => {
@@ -383,106 +352,26 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
   }
 
   const setTorrentFilePriorities = async (torrentId: string, priorities: TorrentFilePriority[]) => {
-    if (!priorities.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      await adapter.setTorrentFilePriorities(torrentId, priorities)
-      if (!isCurrentOperation(operation)) return false
-
-      const snapshot = await adapter.refresh()
-      if (isCurrentOperation(operation)) applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
+    if (!priorities.length) return false
+    return await runTorrentMutation(() => adapter.setTorrentFilePriorities(torrentId, priorities)) !== null
   }
 
   const setTorrentCategory = async (torrentIds: string[], category: string) => {
-    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      await adapter.setTorrentCategory(uniqueTorrentIds, category)
-      if (!isCurrentOperation(operation)) return false
-
-      const snapshot = await adapter.refresh()
-      if (isCurrentOperation(operation)) applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
+    const ids = normalizeTorrentIds(torrentIds)
+    if (!ids.length) return false
+    return await runTorrentMutation(() => adapter.setTorrentCategory(ids, category)) !== null
   }
 
   const addTorrentTags = async (torrentIds: string[], tags: string[]) => {
-    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      await adapter.addTorrentTags(uniqueTorrentIds, tags)
-      if (!isCurrentOperation(operation)) return false
-
-      const snapshot = await adapter.refresh()
-      if (isCurrentOperation(operation)) applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
+    const ids = normalizeTorrentIds(torrentIds)
+    if (!ids.length) return false
+    return await runTorrentMutation(() => adapter.addTorrentTags(ids, tags)) !== null
   }
 
   const removeTorrentTags = async (torrentIds: string[], tags: string[]) => {
-    const uniqueTorrentIds = [...new Set(torrentIds.map(id => id.trim()).filter(Boolean))]
-    if (!uniqueTorrentIds.length || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value) return false
-
-    const operation = beginOperation()
-    activityUpdating.value = true
-    torrentActionError.value = ''
-
-    try {
-      await adapter.removeTorrentTags(uniqueTorrentIds, tags)
-      if (!isCurrentOperation(operation)) return false
-
-      const snapshot = await adapter.refresh()
-      if (isCurrentOperation(operation)) applySnapshot(snapshot)
-      return true
-    }
-    catch (error) {
-      if (!isCurrentOperation(operation)) return false
-      torrentActionError.value = errorMessage(error)
-      return false
-    }
-    finally {
-      if (isCurrentOperation(operation)) activityUpdating.value = false
-    }
+    const ids = normalizeTorrentIds(torrentIds)
+    if (!ids.length) return false
+    return await runTorrentMutation(() => adapter.removeTorrentTags(ids, tags)) !== null
   }
 
   const fetchCategories = async (): Promise<string[] | null> => {

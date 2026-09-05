@@ -300,6 +300,63 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(addTorrents).not.toHaveBeenCalled()
   })
 
+  it.each(['setTorrentCategory', 'addTorrentTags', 'removeTorrentTags'] as const)('refreshes after %s and normalizes the selected ids', async (method) => {
+    const mutate = vi.fn().mockResolvedValue(undefined)
+    const refresh = vi.fn().mockResolvedValue({ ...snapshot, torrents: [] })
+    const library = useTorrentLibrary(createAdapter({ connect: async () => snapshot, [method]: mutate, refresh }))
+    await library.connect(connectionInput)
+
+    const ids = [' torrent-1 ', 'torrent-1', ' ']
+    const result = method === 'setTorrentCategory'
+      ? await library[method](ids, 'Linux')
+      : await library[method](ids, ['iso'])
+
+    expect(result).toBe(true)
+    expect(mutate).toHaveBeenCalledWith(['torrent-1'], method === 'setTorrentCategory' ? 'Linux' : ['iso'])
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(library.torrents.value).toEqual([])
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('holds the mutation pending until file priorities and the subsequent refresh finish', async () => {
+    const pendingRefresh = deferred<ConnectionSnapshot>()
+    const setTorrentFilePriorities = vi.fn().mockResolvedValue(undefined)
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      setTorrentFilePriorities,
+      refresh: () => pendingRefresh.promise,
+    }))
+    await library.connect(connectionInput)
+    const priorities = [{ id: 0, priority: 0 as const }]
+    const result = library.setTorrentFilePriorities('torrent-1', priorities)
+    await Promise.resolve()
+    expect(setTorrentFilePriorities).toHaveBeenCalledWith('torrent-1', priorities)
+    expect(library.activityUpdating.value).toBe(true)
+    pendingRefresh.resolve(snapshot)
+    expect(await result).toBe(true)
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
+  it('does not report mutation success if its refresh is superseded by disconnecting', async () => {
+    const pendingRefresh = deferred<ConnectionSnapshot>()
+    const refresh = vi.fn().mockReturnValue(pendingRefresh.promise)
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      setTorrentCategory: async () => {},
+      refresh,
+    }))
+    await library.connect(connectionInput)
+    const result = library.setTorrentCategory(['torrent-1'], 'Linux')
+    await Promise.resolve()
+    expect(refresh).toHaveBeenCalledOnce()
+    await library.disconnect()
+    pendingRefresh.resolve(snapshot)
+    expect(await result).toBe(false)
+    expect(library.connectionStatus.value).toBe('disconnected')
+    expect(library.torrents.value).toEqual([])
+    expect(library.activityUpdating.value).toBe(false)
+  })
+
   it('loads the default save path once per connection', async () => {
     const defaultSavePath = vi.fn().mockResolvedValue('C:/Downloads')
     const library = useTorrentLibrary(createAdapter({
