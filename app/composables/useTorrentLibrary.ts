@@ -478,12 +478,10 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
 
   const chooseFilter = (filter: TorrentFilterId) => {
     activeFilter.value = filter
-    activeCategory.value = ''
   }
 
   const chooseCategory = (category: string) => {
     activeCategory.value = category
-    activeFilter.value = 'all'
   }
 
   return {

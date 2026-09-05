@@ -98,7 +98,7 @@ describe('TorrentTable', () => {
     expect(wrapper.emitted('remove-torrents')).toBeUndefined()
 
     const removeButtons = Array.from(modal.querySelectorAll('button'))
-      .filter(button => button.textContent?.trim() === 'Remove')
+      .filter(button => button.textContent?.trim() === 'Remove torrent')
 
     expect(removeButtons).toHaveLength(1)
     removeButtons[0]!.click()
@@ -112,7 +112,7 @@ describe('TorrentTable', () => {
     removeFiles!.click()
     await flushPromises()
     Array.from(document.body.querySelectorAll('button'))
-      .find(button => button.textContent?.trim() === 'Remove')!.click()
+      .find(button => button.textContent?.trim() === 'Remove torrent and files')!.click()
     await flushPromises()
 
     expect(wrapper.emitted('remove-torrents')).toEqual([
@@ -167,6 +167,29 @@ describe('TorrentTable', () => {
     await search.setValue('linux')
     await flushPromises()
     expect(wrapper.text()).toContain('2 of 3')
+  })
+
+  it('discloses hidden selections in search and removal, and clears them explicitly', async () => {
+    const wrapper = await mountSuspended(TorrentTable, {
+      props: { torrents: [torrent, { ...torrent, id: 'torrent-2', name: 'Fedora ISO' }] },
+    })
+    await wrapper.get('[aria-label="Select all torrents"]').trigger('click')
+    await wrapper.get('[aria-label="Search torrents"]').setValue('Debian')
+    expect(wrapper.text()).toContain('2 selected · 1 hidden')
+
+    await wrapper.get('[aria-label="Remove selected torrents"]').trigger('click')
+    await flushPromises()
+    const dialog = document.body.querySelector('[role="dialog"]')!
+    expect(dialog.querySelector('[aria-label="Torrents to remove"]')?.textContent).toContain('Fedora ISO')
+    expect(dialog.textContent).toContain('1 selected torrent is hidden by your search')
+    Array.from(dialog.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Cancel')!.click()
+    await flushPromises()
+
+    await wrapper.get('[aria-label="Clear selection"]').trigger('click')
+    expect(wrapper.find('[aria-label="Remove selected torrents"]').exists()).toBe(false)
+    await wrapper.get('[aria-label="Clear torrent search"]').trigger('click')
+    expect(wrapper.text()).not.toContain('2 selected')
+    wrapper.unmount()
   })
 
   it('keeps paused torrent names readable while leaving their status icon subdued', async () => {

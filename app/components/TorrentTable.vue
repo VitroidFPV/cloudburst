@@ -113,6 +113,11 @@ const selectedTorrents = computed(() => {
   return selectedTorrentIds.value.flatMap(torrentId => torrentsById.get(torrentId) || [])
 })
 const selectedCount = computed(() => selectedTorrents.value.length)
+const hiddenSelectedCount = computed(() => {
+  const visibleIds = new Set(filteredTorrents.value.map(torrent => torrent.id))
+  return selectedTorrents.value.filter(torrent => !visibleIds.has(torrent.id)).length
+})
+const selectionLabel = computed(() => `${selectedCount.value} selected${hiddenSelectedCount.value ? ` · ${hiddenSelectedCount.value} hidden` : ''}`)
 const canStartSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status === 'paused'))
 const canStopSelected = computed(() => selectedTorrents.value.some(torrent => torrent.status !== 'paused'))
 const activityActionsDisabled = computed(() => props.actionsDisabled || props.actionPending)
@@ -819,7 +824,10 @@ watch(() => props.autoSelectIds, (ids) => {
             />
           </template>
         </UInput>
-        <UBadge v-if="selectedCount" :label="`${selectedCount} selected`" color="primary" variant="subtle" />
+        <template v-if="selectedCount">
+          <UBadge :label="selectionLabel" color="primary" variant="subtle" aria-live="polite" />
+          <UButton icon="i-lucide-x" color="neutral" variant="ghost" size="xs" aria-label="Clear selection" title="Clear selection" @click="clearSelection" />
+        </template>
         <span v-else-if="normalizedSearchQuery" class="shrink-0 text-xs text-muted">
           {{ filteredTorrents.length }} of {{ torrents.length }}
         </span>
@@ -941,6 +949,10 @@ watch(() => props.autoSelectIds, (ids) => {
 
     <UModal v-model:open="removeOpen" :title="removeTitle" description="The selected torrents stop being managed.">
       <template #body>
+        <ul class="mb-4 max-h-48 space-y-1 overflow-y-auto text-sm text-highlighted" aria-label="Torrents to remove">
+          <li v-for="torrent in selectedTorrents" :key="torrent.id" class="break-words">{{ torrent.name }}</li>
+        </ul>
+        <p v-if="hiddenSelectedCount" class="mb-4 text-sm text-muted">{{ hiddenSelectedCount }} selected {{ hiddenSelectedCount === 1 ? 'torrent is' : 'torrents are' }} hidden by your search.</p>
         <div class="flex items-start justify-between gap-3">
           <div>
             <p class="text-sm font-medium text-highlighted">Also remove downloaded files</p>
@@ -953,11 +965,11 @@ watch(() => props.autoSelectIds, (ids) => {
       <template #footer>
         <div class="flex w-full items-center justify-between gap-3">
           <p class="text-xs text-muted">
-            Removing cannot be undone.
+            {{ removeFiles ? 'Downloaded files will be permanently deleted.' : 'Downloaded files will be kept.' }}
           </p>
           <div class="flex gap-2">
             <UButton type="button" label="Cancel" color="neutral" variant="ghost" @click="removeOpen = false" />
-            <UButton type="button" label="Remove" color="error" variant="solid" @click="confirmRemoval(removeFiles)" />
+            <UButton type="button" :label="removeFiles ? 'Remove torrent and files' : 'Remove torrent'" color="error" variant="solid" :disabled="activityActionsDisabled || !selectedCount" @click="confirmRemoval(removeFiles)" />
           </div>
         </div>
       </template>
@@ -981,11 +993,15 @@ watch(() => props.autoSelectIds, (ids) => {
 }
 
 .torrent-table tbody > tr[data-selected='true'] > td {
-  background-color: color-mix(in oklab, var(--ui-bg-accented) 78%, transparent);
+  background-color: color-mix(in oklab, var(--ui-primary) 12%, var(--ui-bg));
+}
+
+.torrent-table tbody > tr[data-selected='true'] > td:first-child {
+  box-shadow: inset 2px 0 var(--ui-primary);
 }
 
 .torrent-table tbody > tr[data-selected='true']:hover > td {
-  background-color: color-mix(in oklab, var(--ui-bg-accented) 90%, transparent);
+  background-color: color-mix(in oklab, var(--ui-primary) 16%, var(--ui-bg));
 }
 
 .torrent-table tbody {
