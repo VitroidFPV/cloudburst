@@ -1,6 +1,7 @@
 import { mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { tauriQbittorrentAdapter } from '~/adapters/qbittorrent'
 import TorrentDetailPanel from '~/components/TorrentDetailPanel.vue'
 import type { ConnectionSnapshot } from '~/types/torrent'
 
@@ -38,6 +39,27 @@ const seedConnectedLibrary = () => {
 }
 
 describe('TorrentDetailPanel', () => {
+  it('does not restart polling when an in-flight request finishes after unmount', async () => {
+    seedConnectedLibrary()
+    let finishFiles!: (files: []) => void
+    const fetchFiles = vi.spyOn(tauriQbittorrentAdapter, 'fetchTorrentFiles')
+      .mockImplementation(() => new Promise(resolve => { finishFiles = resolve }))
+    const wrapper = await mountSuspended(TorrentDetailPanel, { props: { torrentId: 'abc123' } })
+    try {
+      expect(fetchFiles).toHaveBeenCalledOnce()
+      wrapper.unmount()
+      vi.useFakeTimers()
+      finishFiles([])
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(fetchFiles).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+      fetchFiles.mockRestore()
+    }
+  })
+
   it('renders the bound torrent with its facts and tags', async () => {
     seedConnectedLibrary()
     const wrapper = await mountSuspended(TorrentDetailPanel, { props: { torrentId: 'abc123' } })
