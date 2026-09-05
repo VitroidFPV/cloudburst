@@ -1,4 +1,4 @@
-import type { AddTorrentFile, AddTorrentsInput, AddTorrentsOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentContentAction, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
+import type { AddTorrentFile, AddTorrentsInput, AddTorrentsBatchOutcome, ConnectionInput, ConnectionProfile, ConnectionProfileList, ConnectionSnapshot, ConnectionStatus, MetadataFetch, ResolveOutcome, Torrent, TorrentContentAction, TorrentFile, TorrentFilePriority, TorrentFilter, TorrentFilterId, TorrentMetadata, TorrentProperties, TorrentTracker } from '~/types/torrent'
 import { usePlaceholderSetting } from '~/composables/usePlaceholderSetting'
 import { REFRESH_CADENCE_INTERVALS_MS, useRefreshCadenceSetting } from '~/composables/useRefreshCadenceSetting'
 import { tauriQbittorrentAdapter, type QbittorrentAdapter } from '~/adapters/qbittorrent'
@@ -272,9 +272,54 @@ export const useTorrentLibrary = (adapter: QbittorrentAdapter = tauriQbittorrent
     return await runTorrentMutation(() => adapter.removeTorrents(ids, deleteFiles), snapshot => snapshot) !== null
   }
 
-  const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsOutcome | null> => {
-    if (!input.urls.some(url => url.trim()) && !input.files.length) return null
-    return runTorrentMutation(() => adapter.addTorrents(input))
+  const addTorrents = async (input: AddTorrentsInput): Promise<AddTorrentsBatchOutcome | null> => {
+    if ((!input.urls.some(url => url.trim()) && !input.files.length)
+      || connectionStatus.value !== 'connected' || stale.value || showPlaceholder.value || activityUpdating.value) return null
+
+    const operation = beginOperation()
+    activityUpdating.value = true
+    torrentActionError.value = ''
+    const batch: AddTorrentsBatchOutcome = { results: [], addedTorrentIds: [] }
+    const sources: AddTorrentsInput[] = [
+      ...input.urls.map(url => ({ ...input, urls: [url], files: [] })),
+      ...input.files.map(file => ({ ...input, urls: [], files: [file] })),
+    ]
+
+    try {
+      // One source per request makes aggregate instance counts attributable.
+      for (const source of sources) {
+        if (!isCurrentOperation(operation)) {
+          batch.results.push({ status: 'notSubmitted', message: 'The connection changed before this source was submitted.' })
+          continue
+        }
+        try {
+          const outcome = await adapter.addTorrents(source)
+          batch.addedTorrentIds.push(...outcome.addedTorrentIds)
+          const status = outcome.successCount > 0 ? 'added'
+            : outcome.pendingCount > 0 ? 'pending'
+              : outcome.failureCount > 0 ? 'rejected' : 'unknown'
+          batch.results.push(outcome.rejectionReason ? { status, message: outcome.rejectionReason } : { status })
+        }
+        catch (error) {
+          // A lost response does not prove that the instance rejected a source.
+          batch.results.push({ status: 'unknown', message: errorMessage(error) })
+        }
+      }
+
+      if (isCurrentOperation(operation)) {
+        try {
+          const snapshot = await adapter.refresh()
+          if (isCurrentOperation(operation)) applySnapshot(snapshot)
+        }
+        catch (error) {
+          applyFailure(operation, error)
+        }
+      }
+      return batch
+    }
+    finally {
+      if (isCurrentOperation(operation)) activityUpdating.value = false
+    }
   }
 
   const loadDefaultSavePath = async () => {

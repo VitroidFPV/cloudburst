@@ -82,7 +82,7 @@ Torrents can be started, stopped, and removed from the table toolbar or the row 
 
 Torrents are added through a two-step dialog: sources first, then a review step. Sources are magnet links or .torrent URLs entered one per line, and .torrent files picked from disk or dropped anywhere on the window. The review step offers a category, folder layout, and save location — with a native folder picker for local instances — plus a toggleable file tree for single-source adds that lets the user keep or skip individual files before submitting. Magnets resolve their file list through qBittorrent's metadata fetch while the dialog stays open.
 
-The instance reports successes, rejections (usually duplicates), and sources still being fetched.
+Sources are submitted individually so Cloudburst can show each result. When every source succeeds, the dialog closes. Otherwise it keeps a result list with added, rejected, still-fetching, or unconfirmed sources. **Edit failed sources** returns only rejected or unsubmitted items to the source step and preserves the chosen settings. Pending and unconfirmed sources are excluded from retry to avoid resubmitting something qBittorrent may already have accepted. Incoming magnet links and dropped files wait for review until the current batch is finished.
 
 ### Magnet links
 

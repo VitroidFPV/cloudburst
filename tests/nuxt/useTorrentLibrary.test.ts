@@ -282,7 +282,7 @@ describe('useTorrentLibrary connection lifecycle', () => {
     await library.connect(connectionInput)
 
     const input: AddTorrentsInput = { urls: ['magnet:?xt=urn:btih:abc'], files: [], contentLayout: 'original' }
-    expect(await library.addTorrents(input)).toEqual(outcome)
+    expect(await library.addTorrents(input)).toEqual({ results: [{ status: 'added' }], addedTorrentIds: ['new-1'] })
     expect(addTorrents).toHaveBeenCalledWith(input)
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(library.torrents.value).toEqual([addedTorrent])
@@ -296,15 +296,17 @@ describe('useTorrentLibrary connection lifecycle', () => {
       addTorrents: async () => {
         throw new Error('qBittorrent rejected the request')
       },
+      refresh: async () => snapshot,
     }))
 
     await library.connect(connectionInput)
 
     const input: AddTorrentsInput = { urls: ['magnet:?xt=urn:btih:abc'], files: [], contentLayout: 'original' }
-    expect(await library.addTorrents(input)).toBeNull()
+    expect(await library.addTorrents(input)).toEqual({
+      results: [{ status: 'unknown', message: 'qBittorrent rejected the request' }], addedTorrentIds: [],
+    })
     expect(library.connectionStatus.value).toBe('connected')
     expect(library.torrents.value).toEqual([torrent])
-    expect(library.torrentActionError.value).toBe('qBittorrent rejected the request')
     expect(library.activityUpdating.value).toBe(false)
   })
 
@@ -320,6 +322,58 @@ describe('useTorrentLibrary connection lifecycle', () => {
     expect(await library.addTorrents({ urls: [' magnet:?xt=urn:btih:abc '], files: [], contentLayout: 'original' })).toBeNull()
     expect(await library.addTorrents({ urls: [' '], files: [], contentLayout: 'original' })).toBeNull()
     expect(addTorrents).not.toHaveBeenCalled()
+  })
+
+  it('attributes mixed results to individual sources and refreshes once', async () => {
+    const addTorrents = vi.fn()
+      .mockResolvedValueOnce({ successCount: 1, failureCount: 0, pendingCount: 0, addedTorrentIds: ['new'] })
+      .mockResolvedValueOnce({ successCount: 0, failureCount: 0, pendingCount: 1, addedTorrentIds: [] })
+      .mockResolvedValueOnce({ successCount: 0, failureCount: 1, pendingCount: 0, addedTorrentIds: [], rejectionReason: 'Unreadable torrent data' })
+    const refresh = vi.fn().mockResolvedValue(snapshot)
+    const library = useTorrentLibrary(createAdapter({ connect: async () => snapshot, addTorrents, refresh }))
+    await library.connect(connectionInput)
+    const file = { name: 'broken.torrent', base64Content: 'abc' }
+    const options = { contentLayout: 'subfolder' as const, category: 'Linux', savePath: 'D:/Torrents' }
+    expect(await library.addTorrents({ urls: ['first', 'second'], files: [file], ...options })).toEqual({
+      results: [{ status: 'added' }, { status: 'pending' }, { status: 'rejected', message: 'Unreadable torrent data' }],
+      addedTorrentIds: ['new'],
+    })
+    expect(addTorrents.mock.calls.map(([input]) => input)).toEqual([
+      { urls: ['first'], files: [], ...options },
+      { urls: ['second'], files: [], ...options },
+      { urls: [], files: [file], ...options },
+    ])
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('preserves confirmed outcomes when the library refresh fails', async () => {
+    const library = useTorrentLibrary(createAdapter({
+      connect: async () => snapshot,
+      addTorrents: async () => ({ successCount: 1, failureCount: 0, pendingCount: 0, addedTorrentIds: ['new'] }),
+      refresh: async () => { throw new Error('Connection lost') },
+    }))
+    await library.connect(connectionInput)
+    expect(await library.addTorrents({ urls: ['first'], files: [], contentLayout: 'original' })).toEqual({
+      results: [{ status: 'added' }], addedTorrentIds: ['new'],
+    })
+    expect(library.stale.value).toBe(true)
+    expect(library.connectionStatus.value).toBe('disconnected')
+  })
+
+  it('does not submit remaining sources to a changed connection', async () => {
+    const pendingAdd = deferred<AddTorrentsOutcome>()
+    const addTorrents = vi.fn(() => pendingAdd.promise)
+    const library = useTorrentLibrary(createAdapter({ connect: async () => snapshot, addTorrents }))
+    await library.connect(connectionInput)
+    const adding = library.addTorrents({ urls: ['first', 'second'], files: [], contentLayout: 'original' })
+    expect(await library.addTorrents({ urls: ['third'], files: [], contentLayout: 'original' })).toBeNull()
+    await library.disconnect()
+    pendingAdd.resolve({ successCount: 1, failureCount: 0, pendingCount: 0, addedTorrentIds: ['new'] })
+    expect((await adding)?.results).toEqual([
+      { status: 'added' }, { status: 'notSubmitted', message: 'The connection changed before this source was submitted.' },
+    ])
+    expect(addTorrents).toHaveBeenCalledOnce()
+    expect(library.torrents.value).toEqual([])
   })
 
   it.each(['setTorrentCategory', 'addTorrentTags', 'removeTorrentTags'] as const)('refreshes after %s and normalizes the selected ids', async (method) => {
