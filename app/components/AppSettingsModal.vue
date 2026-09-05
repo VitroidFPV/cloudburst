@@ -13,6 +13,8 @@ const {
 const colorMode = useColorMode()
 
 const open = defineModel<boolean>('open', { default: false })
+defineProps<{ canConfigureMagnets?: boolean }>()
+const emit = defineEmits<{ 'magnet-settings': [] }>()
 
 const appearanceOptions = computed(() => [
   {
@@ -161,6 +163,13 @@ const notificationDescription = canUseNotifications
               aria-label="Placeholder torrents"
               @update:model-value="setPlaceholderEnabled"
             />
+          </div>
+          <div v-if="canConfigureMagnets" class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium text-highlighted">Magnet links</p>
+              <p class="mt-0.5 text-xs text-muted">Choose Cloudburst as your magnet link handler in Windows Settings.</p>
+            </div>
+            <UButton label="Set up" color="neutral" variant="outline" size="sm" aria-label="Set up magnet links" @click="emit('magnet-settings')" />
           </div>
         </section>
       </div>

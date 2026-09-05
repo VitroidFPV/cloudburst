@@ -86,7 +86,7 @@ Sources are submitted individually so Cloudburst can show each result. When ever
 
 ### Magnet links
 
-`magnet:` links clicked in the browser open the dialog prefilled. Cloudburst registers the scheme at startup and advertises itself to Windows as a magnet handler, so browsers and the Settings app can offer it. The dialog always opens for review before submitting, and Cloudburst warns with a shortcut to Windows Settings if the system still routes magnet links to another program.
+`magnet:` links clicked in the browser open the dialog prefilled. Cloudburst registers the scheme at startup and advertises itself to Windows as a magnet handler, so browsers and the Settings app can offer it. The dialog always opens for review before submitting. Cloudburst warns once with a shortcut to Windows Settings if the system still routes magnet links to another program, and the setup remains available in the application settings after dismissing the warning.
 
 ### System tray
 
