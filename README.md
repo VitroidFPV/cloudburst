@@ -13,7 +13,7 @@ The application runs at `http://localhost:3000`. The browser build can render th
 
 ## Desktop development
 
-Install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. The repository pins Rust 1.88 and rustup will install that toolchain when needed. Then run:
+Install the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your operating system. The repository pins Rust 1.99 and rustup will install that toolchain when needed. Then run:
 
 ```sh
 pnpm dev:desktop
