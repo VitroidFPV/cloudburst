@@ -35,3 +35,7 @@ base64 = "0.22.1"
 tauri-winrt-notification = "0.7.3"
 windows-registry = "0.6.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Graphics_Dwm"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }
+futures-util = "0.3"

@@ -2,7 +2,7 @@
 import type { AppearanceMode } from '~/composables/useAppearanceSetting'
 import type { RefreshCadence } from '~/composables/useRefreshCadenceSetting'
 
-const { appearanceMode, canUseWindowMaterials, setAppearanceMode } = useAppearanceSetting()
+const { appearanceMode, canUseWindowMaterials, canUseSystemColors, setAppearanceMode } = useAppearanceSetting()
 const { placeholderEnabled, placeholderForced, setPlaceholderEnabled } = usePlaceholderSetting()
 const { refreshCadence, setRefreshCadence } = useRefreshCadenceSetting()
 const {
@@ -22,6 +22,7 @@ const appearanceOptions = computed(() => [
     value: 'off' as const,
     icon: 'i-lucide-square',
   },
+  ...(canUseSystemColors ? [{ label: 'System colors', value: 'system' as const, icon: 'i-lucide-palette' }] : []),
   {
     label: 'Toned',
     value: 'toned' as const,
@@ -34,9 +35,10 @@ const appearanceOptions = computed(() => [
     icon: 'i-lucide-sparkles',
     disabled: !canUseWindowMaterials,
   },
-])
+].filter(option => !canUseSystemColors || !['toned', 'mica'].includes(option.value)))
 
 const appearanceDescriptions: Record<AppearanceMode, string> = {
+  system: 'Follow your desktop color scheme and accent color.',
   off: 'Use Cloudburst\'s solid app colors without a window material.',
   toned: 'Keep the standard colors with a subtle hint of the desktop material.',
   mica: 'Let the Windows desktop material show clearly through the app.',
@@ -49,7 +51,7 @@ const colorModeOptions = [
 ]
 
 const colorModeDescriptions: Record<string, string> = {
-  system: 'Follow the Windows personalization setting.',
+  system: 'Follow the system appearance setting.',
   light: 'Use Cloudburst\'s light theme.',
   dark: 'Use Cloudburst\'s dark theme.',
 }
@@ -84,9 +86,9 @@ const notificationDescription = canUseNotifications
           <h3 class="text-xs font-medium uppercase tracking-wide text-muted">Appearance</h3>
           <div class="space-y-2">
             <div>
-              <p class="text-sm font-medium text-highlighted">Window material</p>
+              <p class="text-sm font-medium text-highlighted">App appearance</p>
               <p class="mt-0.5 text-xs text-muted">
-                {{ canUseWindowMaterials ? appearanceDescriptions[appearanceMode] : 'Toned and Mica are available in the Windows desktop app.' }}
+                {{ canUseWindowMaterials || canUseSystemColors ? appearanceDescriptions[appearanceMode] : 'Toned and Mica are available in the Windows desktop app.' }}
               </p>
             </div>
             <URadioGroup
@@ -96,8 +98,8 @@ const notificationDescription = canUseNotifications
               orientation="horizontal"
               indicator="hidden"
               size="sm"
-              aria-label="Window material"
-              :ui="{ fieldset: 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
+              aria-label="App appearance"
+              :ui="{ fieldset: canUseSystemColors ? 'grid grid-cols-2' : 'grid grid-cols-3', item: 'justify-center', wrapper: 'items-center' }"
               @update:model-value="setAppearanceMode"
             />
           </div>
@@ -105,11 +107,12 @@ const notificationDescription = canUseNotifications
             <div>
               <p class="text-sm font-medium text-highlighted">Color mode</p>
               <p class="mt-0.5 text-xs text-muted">
-                {{ colorModeDescriptions[colorMode.preference] ?? colorModeDescriptions.system }}
+                {{ canUseSystemColors && appearanceMode === 'system' ? 'Light and dark colors follow your desktop palette.' : colorModeDescriptions[colorMode.preference] ?? colorModeDescriptions.system }}
               </p>
             </div>
             <URadioGroup
               v-model="colorMode.preference"
+              :disabled="canUseSystemColors && appearanceMode === 'system'"
               :items="colorModeOptions"
               variant="table"
               orientation="horizontal"

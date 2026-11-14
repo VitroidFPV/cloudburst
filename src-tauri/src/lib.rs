@@ -4,6 +4,7 @@ mod content_action;
 mod magnet_handler;
 mod notification;
 mod qbittorrent;
+mod system_colors;
 mod tray;
 mod window_appearance;
 
@@ -21,6 +22,8 @@ pub fn run() {
         .manage(qbittorrent::ConnectionManager::default())
         .setup(|app| {
             tray::setup(app)?;
+            #[cfg(target_os = "linux")]
+            system_colors::watch(app.handle().clone());
             #[cfg(target_os = "linux")]
             {
                 use tauri_plugin_deep_link::DeepLinkExt;
@@ -74,7 +77,8 @@ pub fn run() {
             magnet_handler::magnet_handler_status,
             magnet_handler::open_default_apps_settings,
             notification::send_torrent_notification,
-            window_appearance::set_window_caption_color
+            window_appearance::set_window_caption_color,
+            system_colors::system_colors
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

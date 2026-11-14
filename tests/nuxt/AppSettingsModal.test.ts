@@ -43,11 +43,11 @@ describe('AppSettingsModal', () => {
   it('offers window material, color mode, refresh cadence, and placeholder settings', async () => {
     await mountModal()
 
-    expect(bodyText()).toContain('Window material')
+    expect(bodyText()).toContain('App appearance')
     expect(bodyText()).toContain('Color mode')
     expect(bodyText()).toContain('Refresh cadence')
     expect(bodyText()).toContain('Placeholder torrents')
-    expect(findRadioOption('Mica')).toBeDefined()
+    expect(findRadioOption(navigator.userAgent.includes('Linux') ? 'System colors' : 'Mica')).toBeDefined()
     expect(findRadioOption('Dark')).toBeDefined()
     expect(findRadioOption('Slow')).toBeDefined()
   })
