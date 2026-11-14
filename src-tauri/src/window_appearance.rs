@@ -1,3 +1,4 @@
+#[cfg(any(windows, test))]
 const DWM_COLOR_DEFAULT: u32 = 0xffff_ffff;
 
 #[tauri::command]
@@ -8,6 +9,7 @@ pub fn set_window_caption_color(
     set_window_caption_color_impl(&window, color)
 }
 
+#[cfg(any(windows, test))]
 fn caption_color_value(color: Option<[u8; 3]>) -> u32 {
     color.map_or(DWM_COLOR_DEFAULT, |[red, green, blue]| {
         u32::from(red) | (u32::from(green) << 8) | (u32::from(blue) << 16)
