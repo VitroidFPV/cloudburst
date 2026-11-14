@@ -109,3 +109,38 @@ input {
 ::selection {
   background: rgb(34 211 238 / 0.28);
 }
+
+/* Kirigami lists use the View color set. Keep its foreground/background paired,
+   with Window colors for secondary surfaces and the accent for interactive states.
+   Set on html so dialogs and other portaled surfaces share the palette. */
+html.system-palette {
+  --cloudburst-window-bg: var(--system-window-channels, 255 255 255);
+  --ui-bg: var(--system-view, var(--system-window, var(--ui-color-neutral-50)));
+  --ui-bg-muted: var(--system-window, var(--ui-bg));
+  --ui-bg-elevated: var(--system-button, var(--ui-bg));
+  --ui-bg-accented: color-mix(in oklab, var(--ui-bg) 88%, var(--ui-text));
+  --ui-text: var(--system-viewText, var(--system-text, var(--ui-color-neutral-900)));
+  --ui-text-highlighted: var(--ui-text);
+  --ui-text-toned: color-mix(in oklab, var(--ui-text) 85%, var(--ui-bg));
+  --ui-text-muted: var(--system-viewInactiveText, var(--system-disabled, color-mix(in oklab, var(--ui-text) 65%, var(--ui-bg))));
+  --ui-text-dimmed: var(--ui-text-muted);
+  --ui-primary: var(--system-accent, var(--system-selection, var(--ui-text)));
+  --ui-text-inverted: var(--system-selectionText, var(--ui-bg));
+  --ui-border: color-mix(in oklab, var(--ui-text) 18%, var(--ui-bg));
+  --ui-border-muted: color-mix(in oklab, var(--ui-text) 10%, var(--ui-bg));
+  --ui-border-accented: color-mix(in oklab, var(--ui-text) 28%, var(--ui-bg));
+  --cloudburst-detail-surface: var(--ui-bg-elevated);
+  --cloudburst-progress-track: var(--ui-border);
+  --cloudburst-paused-name: var(--ui-text-toned);
+}
+
+html.system-palette.dark {
+  --cloudburst-window-bg: var(--system-window-channels, 16 16 18);
+  --ui-bg: var(--system-view, var(--system-window, var(--cloudburst-bg-dark)));
+  --ui-text: var(--system-viewText, var(--system-text, var(--ui-color-neutral-200)));
+}
+
+html.system-palette ::selection {
+  background: var(--system-selection, var(--ui-primary));
+  color: var(--system-selectionText, var(--ui-text-inverted));
+}

@@ -559,6 +559,7 @@ name = "cloudburst"
 version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
+ "futures-util",
  "keyring",
  "reqwest 0.12.28",
  "serde",
@@ -574,6 +575,7 @@ dependencies = [
  "tokio",
  "windows-registry 0.6.1",
  "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]
@@ -4661,7 +4663,9 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -5916,6 +5920,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

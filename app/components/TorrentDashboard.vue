@@ -12,6 +12,8 @@ interface AddTorrentModalApi {
   showOutcome: (outcome: AddTorrentsBatchOutcome | null, error?: string) => void
 }
 
+const { appearanceMode, canUseSystemColors } = useAppearanceSetting()
+const navigationColor = computed(() => canUseSystemColors && appearanceMode.value === 'system' ? 'neutral' : 'primary')
 const toast = useToast()
 const { appName } = useRuntimeConfig().public
 const { showPlaceholder } = usePlaceholderSetting()
@@ -480,7 +482,7 @@ onBeforeUnmount(() => {
     <UDashboardSidebar id="cloudburst-sidebar">
       <template #header>
         <div class="flex items-center gap-2 px-1">
-          <UIcon name="i-lucide-cloud-rain" class="size-5 text-primary" />
+          <UIcon name="i-lucide-cloud-rain" class="size-5" :class="canUseSystemColors && appearanceMode === 'system' ? 'text-highlighted' : 'text-primary'" />
           <span class="font-semibold text-highlighted">{{ appName }}</span>
         </div>
       </template>
@@ -488,17 +490,18 @@ onBeforeUnmount(() => {
       <template #default>
         <div>
           <p class="mb-2 px-2 text-xs font-medium text-muted">Library</p>
-          <UNavigationMenu :items="libraryItems" orientation="vertical" />
+          <UNavigationMenu :color="navigationColor" :items="libraryItems" orientation="vertical" />
         </div>
 
         <div class="mt-6">
           <p class="mb-2 px-2 text-xs font-medium text-muted">Categories</p>
-          <UNavigationMenu :items="categoryItems" orientation="vertical" />
+          <UNavigationMenu :color="navigationColor" :items="categoryItems" orientation="vertical" />
         </div>
 
         <div class="mt-6">
           <p class="mb-2 px-2 text-xs font-medium text-muted">App</p>
           <UNavigationMenu
+            :color="navigationColor"
             :items="[{ label: 'Settings', icon: 'i-lucide-settings', onSelect: () => appSettingsOpen = true }]"
             orientation="vertical"
           />

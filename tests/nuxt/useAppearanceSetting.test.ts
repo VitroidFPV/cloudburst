@@ -53,6 +53,21 @@ describe('useAppearanceSetting', () => {
     document.documentElement.classList.remove(...APPEARANCE_CLASSES)
   })
 
+  it('persists system colors on the Linux desktop without enabling Windows effects', () => {
+    stubWindowsDesktop()
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value: 'Mozilla/5.0 (X11; Linux x86_64)', configurable: true,
+    })
+    const setting = useAppearanceSetting()
+    expect(setting.canUseSystemColors).toBe(true)
+    setting.setAppearanceMode('system')
+    expect(localStorage.getItem(APPEARANCE_STORAGE_KEY)).toBe('system')
+    expect(document.documentElement.classList.contains('appearance-system')).toBe(true)
+    expect(windowMocks.setEffects).not.toHaveBeenCalled()
+    setting.setAppearanceMode('off')
+    expect(document.documentElement.classList.contains('appearance-system')).toBe(false)
+  })
+
   it('defaults to Mica but keeps non-Windows environments opaque', () => {
     const { appearanceMode, canUseWindowMaterials, loadAppearanceSetting } = useAppearanceSetting()
 

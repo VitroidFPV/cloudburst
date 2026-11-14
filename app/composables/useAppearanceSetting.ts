@@ -1,4 +1,4 @@
-export const APPEARANCE_MODES = ['off', 'toned', 'mica'] as const
+export const APPEARANCE_MODES = ['off', 'toned', 'mica', 'system'] as const
 
 export type AppearanceMode = typeof APPEARANCE_MODES[number]
 
@@ -26,7 +26,10 @@ const getWindowBackgroundColor = (): [number, number, number, number] => {
 }
 
 export const useAppearanceSetting = () => {
-  const appearanceMode = useState<AppearanceMode>('appearance-setting', () => 'mica')
+  const canUseSystemColors = typeof window !== 'undefined'
+    && '__TAURI_INTERNALS__' in window
+    && navigator.userAgent.includes('Linux')
+  const appearanceMode = useState<AppearanceMode>('appearance-setting', () => canUseSystemColors ? 'off' : 'mica')
   const colorMode = useColorMode()
 
   const canUseWindowMaterials = typeof window !== 'undefined'
@@ -38,7 +41,7 @@ export const useAppearanceSetting = () => {
 
     const root = document.documentElement
     root.classList.remove(...APPEARANCE_CLASSES)
-    root.classList.add(`appearance-${canUseWindowMaterials ? appearanceMode.value : 'off'}`)
+    root.classList.add(`appearance-${canUseSystemColors && appearanceMode.value === 'system' ? 'system' : canUseWindowMaterials && appearanceMode.value !== 'system' ? appearanceMode.value : 'off'}`)
   }
 
   const applyWindowEffect = async () => {
@@ -112,6 +115,7 @@ export const useAppearanceSetting = () => {
   return {
     appearanceMode,
     canUseWindowMaterials,
+    canUseSystemColors,
     loadAppearanceSetting,
     setAppearanceMode,
   }
