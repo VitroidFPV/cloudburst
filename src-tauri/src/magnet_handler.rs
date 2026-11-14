@@ -4,7 +4,9 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub enum MagnetHandlerStatus {
     CloudburstDefault,
+    #[cfg(any(windows, test))]
     OtherProgram,
+    #[cfg(any(windows, test))]
     NotRegistered,
 }
 
@@ -64,6 +66,7 @@ fn resolve_progid_command(progid: &str) -> Option<String> {
         .and_then(|key| key.get_string("").ok())
 }
 
+#[cfg(windows)]
 fn current_exe_marker() -> String {
     std::env::current_exe()
         .ok()
@@ -74,6 +77,7 @@ fn current_exe_marker() -> String {
         .unwrap_or_else(|| "cloudburst.exe".to_string())
 }
 
+#[cfg(any(windows, test))]
 fn evaluate_magnet_status(
     registered: bool,
     user_choice: Option<String>,
